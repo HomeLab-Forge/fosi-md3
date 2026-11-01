@@ -1,0 +1,15 @@
+# Your unit's dumps and backups: Fosi's firmware and art, never committed
+backup/
+*.bin
+!firmware/**/*.bin.keep
+captures/
+assets/
+# Build output
+firmware/build/
+firmware/managed_components/
+firmware/sdkconfig
+firmware/sdkconfig.old
+tests/host/build/
+__pycache__/
+.venv/
+.DS_Store
