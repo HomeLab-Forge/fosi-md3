@@ -94,9 +94,10 @@ Drawn as in [`design/status-screen.html`](../design/status-screen.html), on blac
 - **Top:** the stream, from the Savitech link: "96 kHz PCM", "44.1 kHz PCM", "DSD128", or "no
   stream" while the link has reported no rate. The link carries no bit depth.
 - **Centre:** the current preset's frequency response from 200 Hz to 20 kHz on a log axis, 6 px
-  per dB around a 0 dB line. The points are the response of the quantized coefficients, make-up
-  included, computed by `tools/eq_design.py` for the current rate group: it is the filter the
-  DAC is loaded with, assuming the coefficient scale is right. Flat draws a flat line (the
+  per dB around a 0 dB line. The points are the preset's smooth target curve, make-up
+  included. `tools/eq_design.py` only offers a preset at a rate group where the real response of
+  the quantized coefficients stays within 1 dB of that target (within 0.24 dB at 44.1/48 kHz),
+  so the drawing leaves out only the small ripple. Flat draws a flat line (the
   built-in filter's own response is not modelled). The mock-up's impulse responses for the eight
   built-in filters were not carried over, since 0.3.0 offers only F1.
 - **Below the curve:** the preset name and a note. "Flat at this rate" when the preset has no

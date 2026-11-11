@@ -295,7 +295,8 @@ def main() -> int:
                 continue
             row_idx.append(len(sets))
             sets.append(c2)
-            row_curve.append([round(100 * (db(composite(c2, c4, f, fs, unity)) + makeup / 2)) for f in curve_hz])
+            # The screen shows the smooth target; the gate above keeps the real response within GATE_DB of it.
+            row_curve.append([round(100 * (target(f) + makeup / 2)) for f in curve_hz])
         table.append(row_idx)
         curves.append(row_curve)
     print("\n  check frequencies (Hz): " + " ".join(f"{f:g}" for f in check_hz))
