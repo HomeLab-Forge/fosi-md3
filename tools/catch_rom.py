@@ -17,6 +17,7 @@ import contextlib
 import glob
 import hashlib
 import io
+import os
 import sys
 import time
 from datetime import datetime
@@ -43,11 +44,34 @@ def log(msg: str) -> None:
     print(f"{datetime.now().strftime('%H:%M:%S.%f')[:-3]} {msg}", flush=True)
 
 
+# The boot window's USB id. On Linux the port is a /dev/ttyACM* node, and other
+# Espressif devices can sit on the same host (a Zigbee/Thread stick is 303a:831a),
+# so a fresh node only counts when its USB device is this one.
+BOOT_ID = ("303a", "1001")
+
+
+def usb_id(port: str) -> tuple[str, str] | None:
+    """The (idVendor, idProduct) of the USB device behind a Linux tty node."""
+    dev = Path("/sys/class/tty") / Path(port).name / "device"
+    with contextlib.suppress(OSError):
+        usb = dev.resolve().parent  # the interface's parent is the USB device
+        return ((usb / "idVendor").read_text().strip(), (usb / "idProduct").read_text().strip())
+    return None
+
+
+def candidate_ports() -> set[str]:
+    if sys.platform == "darwin":
+        return set(glob.glob("/dev/cu.usbmodem*"))
+    return {p for p in glob.glob("/dev/ttyACM*") if usb_id(p) == BOOT_ID}
+
+
 def wait_for_port(seconds: float) -> str | None:
-    existing = set(glob.glob("/dev/cu.usbmodem*"))
+    existing = candidate_ports()
     deadline = time.monotonic() + seconds
     while time.monotonic() < deadline:
-        fresh = set(glob.glob("/dev/cu.usbmodem*")) - existing
+        # On Linux the node appears a few ms before udev gives it its group; opening it
+        # then fails with EACCES, so a fresh node only counts once it is writable.
+        fresh = {p for p in candidate_ports() - existing if os.access(p, os.R_OK | os.W_OK)}
         if fresh:
             return sorted(fresh)[0]
         time.sleep(0.005)

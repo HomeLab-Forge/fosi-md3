@@ -54,7 +54,8 @@ def rom_port() -> str | None:
     """The ESP32-S3's USB-Serial-JTAG port (303a:1001), or None. Other serial devices are ignored."""
     from serial.tools import list_ports  # pyserial, installed with esptool
     ports = sorted(p.device for p in list_ports.comports()
-                   if p.vid == 0x303A and p.pid == 0x1001 and p.device.startswith("/dev/cu."))
+                   if p.vid == 0x303A and p.pid == 0x1001
+                   and p.device.startswith(("/dev/cu.", "/dev/ttyACM")))
     return ports[0] if ports else None
 
 
@@ -125,7 +126,7 @@ def catch(wait: float, out_dir: Path) -> str:
         raise SystemExit(f"ROM window not caught; see {out_dir / 'catch.log'}")
     port = rom_port()
     if not port:
-        raise SystemExit("caught, but no /dev/cu.usbmodem* port remains")
+        raise SystemExit("caught, but no 303a:1001 serial port remains")
     return port
 
 
