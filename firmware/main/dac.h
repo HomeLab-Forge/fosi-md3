@@ -12,7 +12,7 @@ esp_err_t dac_init(void);
 /** Recompute and write attenuation from settings + host volume/mute; skips unchanged values. */
 void dac_apply_volume(void);
 
-/** Write the filter register (0..7). */
+/** Set FILTER_SHAPE (reg 0x58 bits [2:0]) from settings, keeping the reserved bits. */
 void dac_apply_filter(void);
 
 /** Forget the cached attenuation so the next apply always writes. */

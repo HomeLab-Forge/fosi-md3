@@ -15,6 +15,8 @@ static const char *TAG = "dac";
 #define REG_CHIP_ID     0xE1
 #define CHIP_ID_9039    0x63
 #define REG_FILTER      0x58
+#define FILTER_SHAPE_MASK       0x07
+#define FILTER_RESERVED_DEFAULT 0xB8  // reset value: reserved [7:3] = 5'b10111, FILTER_SHAPE = 0
 #define REG_ATT_L       0x4A
 #define REG_ATT_R       0x4B
 #define ATT_MUTE        0xFF
@@ -161,9 +163,16 @@ void dac_apply_volume(void)
 
 void dac_apply_filter(void)
 {
-    if (s_present) {
-        write_reg(REG_FILTER, g_settings.filter & 7);
+    if (!s_present) {
+        return;
     }
+    // FILTER_SHAPE is bits [2:0]; bits [7:3] are reserved with a reset value of 5'b10111, so keep
+    // whatever the chip holds there (or that default if the read fails).
+    uint8_t reg = FILTER_RESERVED_DEFAULT;
+    if (read_reg(REG_FILTER, &reg) != ESP_OK) {
+        reg = FILTER_RESERVED_DEFAULT;
+    }
+    write_reg(REG_FILTER, (reg & ~FILTER_SHAPE_MASK) | (g_settings.filter & FILTER_SHAPE_MASK));
 }
 
 void dac_invalidate(void)
