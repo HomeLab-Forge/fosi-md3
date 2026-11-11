@@ -16,13 +16,14 @@ _Static_assert(EQ_PRESET_COUNT == SETTINGS_EQ_PRESETS, "settings.h and eq_coeffs
 
 #define COEF_MAX        ((1 << 23) - 1)
 #define LOG2_MIN        14
-#define LOG2_MAX        24
+#define LOG2_MAX        25   // the 4x stage fits 2^25 (x8); the overflow check guards the rest
 #define TRIM_MAX        120   // 0.1 dB steps: +-12 dB
 #define LOADED_NONE     (-2)  // forces the next eq_apply() to program the DAC
 
-static int s_log2_2x = EQ_COEF_UNITY_LOG2;
-static int s_log2_4x = EQ_COEF_UNITY_LOG2;
-static int s_trim;
+// Calibrated by ear on 2026-11-11: Warm at -28 dB matched Flat at -37 dB with 23/24/0, so 9 dB more.
+static int s_log2_2x = EQ_COEF_UNITY_LOG2 + 1;
+static int s_log2_4x = EQ_COEF_UNITY_LOG2 + 3;
+static int s_trim = 30;
 static int s_group;                  // last PCM rate group seen; 44.1/48 until a stream says otherwise
 static bool s_dsd;
 static int s_loaded = LOADED_NONE;   // k_eq_fir2x index in the DAC, -1 = built-in filter

@@ -384,6 +384,11 @@ static void handle_key(md3_key_t key, md3_press_t press)
         }
         break;
     case KEY_MENU:
+    case KEY_VISTA:
+        // Vista mirrors Menu's click; the DAC <-> U-Disk hold stays on Menu alone.
+        if (key == KEY_VISTA && press != PRESS_CLICK) {
+            break;
+        }
         if (!s_awake) {
             screen_wake();  // the first press only wakes, whatever its length
         } else if (press == PRESS_CLICK) {
@@ -400,8 +405,6 @@ static void handle_key(md3_key_t key, md3_press_t press)
             show_hot(g_settings.udisk_mode ? "U-Disk" : "DAC");
         }
         break;
-    case KEY_VISTA:
-        break;  // unassigned; holding it at power-up still keeps the USB recovery path
     }
 }
 

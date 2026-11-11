@@ -72,7 +72,7 @@ Wi-Fi and Bluetooth from the build" still has `net.c` and `radio_ble.c`.
 | Menu (GPIO8), click | Wakes the screen; nothing else | Next EQ preset |
 | Menu, hold 0.8 s | Wakes the screen | Switches DAC <-> U-Disk (Photo Sync); shows "DAC" or "U-Disk" for 1.5 s |
 | Vol+ / Vol- (GPIO0 / GPIO9), click or hold | Changes the volume; the screen stays dark | Changes the volume and shows the level big for 1.5 s |
-| Vista (GPIO10) | Nothing | Nothing |
+| Vista (GPIO10), click | Wakes the screen | Next EQ preset (the same as a Menu click) |
 
 Eight seconds after the last key the screen goes dark: backlight off, GC9A01 display off and
 sleep in (0x28, 0x10), LVGL stopped. Waking sends sleep out (0x11), waits 120 ms, display on
@@ -166,7 +166,7 @@ python tools/md3ctl.py eq-scale LOG2_2X LOG2_4X TRIM_DB    # default: 22 22 0
 ```
 
 A unity-gain 2x stage then sums to 2^LOG2_2X, the 4x stage to 2^LOG2_4X, and TRIM_DB (0.1 dB
-steps, up to +-12 dB) is extra gain on the 2x stage. Each exponent may be 14-24; a scale that
+steps, up to +-12 dB) is extra gain on the 2x stage. Each exponent may be 14-25; a scale that
 would overflow 24 bits for any coefficient is refused (the request stalls). The scale is saved in
 settings bytes 0x14-0x17 and survives unplugging. `md3ctl.py info` shows it under `eq`.
 
@@ -190,6 +190,10 @@ calibration goes back and forth:
      cannot fix (coefficient order, a different word layout). Go back to Flat and stop.
 6. Only the total gain (both stages together) can be heard. Change LOG2_2X first and touch
    LOG2_4X only when the 2x exponent would overflow.
+
+The calibrated scale for this unit is `eq-scale 23 25 3.0`: with 23/24/0, Warm at -28 dB
+sounded as loud as Flat at -37 dB, so the presets needed 9 dB more. It is also the default from
+0.3.1. A unit that already saved another scale keeps it until `eq-scale` is sent again.
 
 To make a calibrated scale the default for new units, change the initial values in
 `firmware/main/eq.c` (`s_log2_2x`, `s_log2_4x`, `s_trim`).
