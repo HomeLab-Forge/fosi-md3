@@ -1,5 +1,8 @@
 # Hardware limits, and why we returned it
 
+*Written by BenevolentFutures about the unit they tested and returned in 2026-10. The hardware
+limits still apply; md3fw's own known issues are in [`open-firmware.md`](open-firmware.md#known-issues).*
+
 ## The owner's verdict
 
 After five days, for his use (listening from a phone): "it just doesn't work good enough as a

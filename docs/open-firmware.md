@@ -1,19 +1,37 @@
-# The open firmware (md3fw 0.3.0)
+# md3fw 0.3.1
 
-A from-scratch replacement for the ESP32-S3 app, in `firmware/`. ESP-IDF 5.5.1 (the version the
-stock image was built with), LVGL 9.2.2, TinyUSB through `esp_tinyusb`. It is written for the
-existing partition table and only ever replaces the 9 MB `factory` app partition at 0x10000. It
-leaves the Savitech, the photo volume and the settings record format as Fosi made them, so the
-stock firmware can be written back at any time.
+md3fw is a from-scratch replacement for the Fosi Audio MD3's ESP32-S3 app, in `firmware/`. ESP-IDF
+5.5.1 (the version the stock image was built with), LVGL 9.2.2, TinyUSB through `esp_tinyusb`. It is
+written for the existing partition table and only ever replaces the 9 MB `factory` app partition at
+0x10000. It leaves the Savitech, the photo volume and the settings record format as Fosi made them,
+so the stock firmware can be written back at any time.
+
+0.3.1 runs on one unit (flashed 2026-11-11) that is used daily as a DAC for an iPhone. Flashing
+and dumping are done from a Linux host.
+
+![Status screen](../images/status-screen.png)
+
+*The status screen, rendered from [`design/status-screen.html`](../design/status-screen.html).*
+
+## What changed in 0.3.1
+
+- **Louder default coefficient scale:** 2^23 for the 2x stage, 2^25 for the 4x stage, +3.0 dB trim
+  (0.3.0 used 2^22 for both). Calibrated by ear, see
+  [Coefficient scale](#coefficient-scale-and-how-to-calibrate-it).
+- **New button map:** Menu turns the screen on and off and, held, switches DAC/U-Disk; Vista
+  steps the presets (see [Controls](#controls)).
+- **Gain on Vista hold:** High <-> Low, shown as "High Gain" or "Low Gain" at the top of the screen.
+- **Stronger presets:** Bass and Treble ±6 dB, Mid ±5 dB, Warm and Bright tilting to ∓5 dB at 10 kHz.
+- **Smooth curves:** the screen draws each preset's smooth target curve.
+- **Curve scale:** 6 px per dB, ±7 dB, so the stronger presets fit.
 
 ## What changed in 0.3.0
 
-Version 0.3.0 trades the gadget features for lower power and one useful screen. **None of it has
-run on hardware yet**: it builds without warnings and the EQ design script checks its own
-responses, but the unit went back before this was written. The host tests were updated and
-compile-checked with the ESP32 cross compiler; they have not been run on a host since.
+Version 0.3.0 traded the gadget features for lower power and one useful screen. It first ran on
+hardware as 0.3.1. The host tests were updated and compile-checked with the ESP32 cross compiler;
+they have not been run on a host since.
 
-- **No radios.** Wi-Fi and Bluetooth never worked on this unit ([`limits.md`](limits.md)), so
+- **No radios.** Wi-Fi and Bluetooth were never heard on the unit they were tested on ([`limits.md`](limits.md)), so
   0.3.0 drops them from the build: no Wi-Fi scan, no BLE beacon, no HTTP API, no mDNS
   (`CONFIG_BT_ENABLED=n`, and `main/` no longer links `esp_wifi`, lwIP or the HTTP server).
 - **No album, games or clock.** The GIF and JPEG decoders, the Photo1-3/Game1-3 browser and the
@@ -31,38 +49,24 @@ compile-checked with the ESP32 cross compiler; they have not been run on a host 
 
 The app image is now about 0.77 MB (0.2.4: 1.6 MB).
 
-![Status screen](../images/status-screen.png)
+## Before 0.3.0
 
-*The status screen, rendered from [`design/status-screen.html`](../design/status-screen.html).*
+Up to 0.2.4 the firmware matched the stock one (album, games, menus, eight filters) and added a
+24-hour day-wheel clock, Wi-Fi and Bluetooth probes and a Wi-Fi HTTP API. That work was done by
+[BenevolentFutures](https://github.com/BenevolentFutures/fosi-md3) on a unit they later returned.
+The git history before the commit "Turn the radios off and drop Wi-Fi and Bluetooth from the build"
+has the code, and [`history.md`](history.md) describes how it went. Kept from that time: the USB
+control channel, hands-free reflashing (`tools/md3_deploy.py`) and the drive that comes back by
+itself after an eject.
 
-## What 0.2.4 did
+## Known issues
 
-Verified on hardware, 2026-10-29 to 2026-10-31, on version 0.2.4 (several of these were removed
-in 0.3.0, see above):
-
-- **Parity with stock:** audio at every rate and DSD (the DAC detects the format itself), the
-  rate badge, volume keys, the eight filters, gain, menus, settings that persist across reboots,
-  the album (GIF87a, GIF89a and JPEG), all three games, and DAC/U-Disk switching.
-- **The day-wheel:** a 24-hour clock with one hand, noon at the top, and day and night arcs
-  from the real sunrise and sunset. It shows no hand until the computer has set the time, since
-  the device has no clock that survives an unplug.
-- **A USB control channel** (Photo Sync mode): vendor requests on endpoint 0 that work while
-  the computer keeps the drive mounted. Driven by `tools/md3ctl.py`.
-- **Hands-free reflashing:** the firmware reboots itself into ROM download mode on request, so
-  `tools/md3_deploy.py` writes, reads back and restarts a new build in about 20 s with nobody
-  touching the device.
-- **The drive comes back by itself:** after any eject (by a tool, Finder, or macOS at wake),
-  the firmware checks for request files and returns the volume to the computer about 2 s later.
-  It keeps the volume while the album is on screen.
-
-Not verified: power transitions (the charging states the stock firmware handles in its ADC
-task).
-
-Radio probes (0.2.4 only): every boot ran one Wi-Fi scan, and a Bluetooth LE beacon ("MD3
-Radio") broadcast for as long as the device ran. On our unit neither was ever heard. 0.2.4 also
-held a Wi-Fi station with an authenticated HTTP API (`net.c`) that started only if Wi-Fi
-credentials were provisioned in NVS; it never was. All of it is removed in 0.3.0; the git history before the commit "Turn the radios off and drop
-Wi-Fi and Bluetooth from the build" still has `net.c` and `radio_ble.c`.
+- **Charger in the pass-through port.** With a charger in the MD3's PD pass-through port, an
+  iPhone does not see the MD3 as headphones. The power-state code (`firmware/main/power.c`) is
+  unchanged from 0.2.4 and mirrors the stock firmware's charge handling; the cause is not yet
+  known.
+- **Battery saving not measured.** The lower clock, frequency scaling and dark screen should draw
+  less from the phone, but nobody has measured it.
 
 ## Controls
 
@@ -80,11 +84,11 @@ sleep in (0x28, 0x10), LVGL stopped. Waking sends sleep out (0x11), waits 120 ms
 still starts no application and keeps the ESP32's USB recovery path, as before.
 
 Menu is GPIO8 in the stock firmware's pin map ([`stock-firmware.md`](stock-firmware.md)), which
-calls it "Menu/enter"; which physical button that is was not rechecked for 0.3.0.
+calls it "Menu/enter". Vista is the front button.
 
 Host volume, brightness, rotation and UAC 1.0/2.0 had menu items in 0.2.4 and have no
-control in 0.3.0. Their saved values still apply, so set them with the stock firmware or 0.2.4 if
-they need to change. The volume is the same 101-step stock curve.
+control since 0.3.0. Their saved values still apply, so set them with the stock firmware if they
+need to change. The volume is the same 101-step stock curve.
 
 ### The status screen
 
@@ -98,7 +102,7 @@ Drawn as in [`design/status-screen.html`](../design/status-screen.html), on blac
   the quantized coefficients stays within 1 dB of that target (within 0.24 dB at 44.1/48 kHz),
   so the drawing leaves out only the small ripple. Flat draws a flat line (the
   built-in filter's own response is not modelled). The mock-up's impulse responses for the eight
-  built-in filters were not carried over, since 0.3.0 offers only F1.
+  built-in filters were not carried over, since md3fw offers only F1.
 - **Below the curve:** the preset name and a note. "Flat at this rate" when the preset has no
   coefficients for the stream's rate; on DSD the curve greys out and the note says "EQ not used
   on DSD".
@@ -163,7 +167,7 @@ chip expects something else, every custom preset plays louder or quieter than Fl
 amount, or clips. The firmware can rescale at run time:
 
 ```sh
-python tools/md3ctl.py eq-scale LOG2_2X LOG2_4X TRIM_DB    # default: 22 22 0
+python tools/md3ctl.py eq-scale LOG2_2X LOG2_4X TRIM_DB    # firmware default: 23 25 3.0
 ```
 
 A unity-gain 2x stage then sums to 2^LOG2_2X, the 4x stage to 2^LOG2_4X, and TRIM_DB (0.1 dB
@@ -217,9 +221,10 @@ To make a calibrated scale the default for new units, change the initial values 
 | 0x09 SUN | OUT | retired in 0.3.0 with the clock; stalls | - |
 | 0x0A EQ_SCALE | OUT | wValue = log2 scale of the 2x stage \| 4x stage << 8, wIndex = int16 trim on the 2x stage in 0.1 dB; persisted; stalls if it would overflow | `eq-scale [L2X [L4X [TRIM_DB]]]` |
 
-The KEY request accepts a key and press as the buttons do, so `md3ctl.py key menu` wakes the
-screen or steps the preset, and `md3ctl.py key menu long` switches modes. `md3ctl.py reenumerate`
-resets the device's USB port from the host (IOKit, works on any firmware), which brings back a
+The KEY request accepts a key and press as the buttons do, so `md3ctl.py key menu` turns the
+screen on or off, `md3ctl.py key vista` steps the preset, and `md3ctl.py key menu long` switches
+modes while the screen is on. `md3ctl.py reenumerate`
+resets the device's USB port from the host (a libusb reset, works on any firmware), which brings back a
 volume left dark.
 
 ## Safety design
@@ -236,7 +241,7 @@ volume left dark.
   on the port.
 - Every image must keep both ROM-request paths (`MD3_CTL_ROM` in `usb_ctl.c` and the
   `MD3ROM.TXT` request file checked in `ui.c`), or the next flash needs the boot window again.
-  0.3.0 keeps both, and the `MD3SHOT.TXT` and `MD3KEY.TXT` request files.
+  0.3.x keeps both, and the `MD3SHOT.TXT` and `MD3KEY.TXT` request files.
 - EQ coefficients go to the DAC only while it is muted, and a failed load leaves the built-in
   filter selected with no make-up.
 
@@ -270,29 +275,66 @@ idf.py build            # produces build/md3fw.bin
 ```
 
 `sdkconfig.defaults`, `dependencies.lock` and `partitions.csv` (a copy of the factory table)
-pin the build configuration. A clean build of 0.3.0 produces a 0.77 MB `md3fw.bin` (0.2.4:
-1.6 MB). `sdkconfig` is generated: after changing `sdkconfig.defaults`, delete it so the new
-defaults apply. Never run a whole-flash command generated by `idf.py`: it would
-rewrite the bootloader and partition table.
+pin the build configuration. A clean build produces a 0.77 MB `md3fw.bin`. `sdkconfig` is
+generated: after changing `sdkconfig.defaults`, delete it so the new defaults apply. Never run a
+whole-flash command generated by `idf.py`: it would rewrite the bootloader and partition table.
 
 `firmware/main/eq_coeffs.h` is generated by `python3 tools/eq_design.py` (pure Python, a second
 or two) and committed; run it again after changing a preset.
 
-First flash (stock firmware on the device): run `tools/catch_rom.py --hold`, plug the MD3 into
-its bottom port, then write the app only:
+### Linux host
 
-```sh
-python -m esptool --chip esp32s3 --port /dev/cu.usbmodemXXXX \
-  --before no-reset --after no-reset write-flash 0x10000 firmware/build/md3fw.bin
-python tools/catch_rom.py --port /dev/cu.usbmodemXXXX     # watchdog reset into the app
+The tools need the MD3's two Espressif USB ids to be usable without root: 303a:1001 (the boot
+window's USB-Serial-JTAG, a `/dev/ttyACM*` node) and 303a:4002 (Photo Sync and the control
+channel). A udev rule that gives both to `plugdev`, for a user in that group:
+
+```
+# /etc/udev/rules.d/60-fosi-md3.rules
+ATTRS{idVendor}=="303a", ATTRS{idProduct}=="1001|4002", GROUP="plugdev", MODE="0660"
 ```
 
-After that, with the MD3 in Photo Sync mode: `python tools/md3_deploy.py firmware/build/md3fw.bin`.
+Reload with `sudo udevadm control --reload` and replug. `catch_rom.py` only takes a fresh
+`/dev/ttyACM*` node whose USB device is 303a:1001, so other Espressif devices on the same host
+are left alone, and it waits until udev has made the node writable.
 
-Back to stock: `python tools/md3_factory_restore.py flash-full.bin` writes everything from
-0x9000 onward from your own dump, refuses to run if the bootloader or partition table differ,
-and verifies the whole flash. Or write just the app partition back from the same dump (the
-`dd` slice in [`hardware.md`](hardware.md)) with `esptool write-flash 0x10000 backup/factory-app.bin`.
+On macOS the port is `/dev/cu.usbmodem*` and needs no rule.
+
+### Dump first
+
+Run `python tools/catch_rom.py --dump`, then unplug and replug the MD3's bottom port without
+touching a button. It catches the boot window, reads all 32 MB into
+`backup/flash-<time>/flash-full.bin` with its sha256, and resets the chip into its app. Do it
+twice and compare the hashes. [`hardware.md`](hardware.md) shows how to cut the factory app
+partition out of the dump.
+
+### First flash
+
+With the stock firmware on the device: run `python tools/catch_rom.py --hold`, replug the MD3
+into its bottom port, then write the app only:
+
+```sh
+python -m esptool --chip esp32s3 --port /dev/ttyACM0 \
+  --before no-reset --after no-reset write-flash 0x10000 firmware/build/md3fw.bin
+python tools/catch_rom.py --port /dev/ttyACM0     # watchdog reset into the app
+```
+
+Use the port `catch_rom.py` printed.
+
+### Updates
+
+With md3fw running and the MD3 in Photo Sync mode: `python tools/md3_deploy.py
+firmware/build/md3fw.bin`. It asks for ROM mode over the control channel, writes 0x10000, reads
+it back and restarts the app. Its fallbacks that go through the Photo Sync volume (the
+`MD3ROM.TXT` request, the final check that the volume is back) find the volume with `mount` and
+`diskutil` the macOS way; on Linux they do not find it, so the tool may report no volume at the
+end even when the write and readback succeeded.
+
+### Back to stock
+
+`python tools/md3_factory_restore.py flash-full.bin` writes everything from 0x9000 onward from
+your own dump, refuses to run if the bootloader or partition table differ, and verifies the
+whole flash. Or write just the app partition back from the same dump (the `dd` slice in
+[`hardware.md`](hardware.md)) with `esptool write-flash 0x10000 backup/factory-app.bin`.
 
 ## Host tests
 
@@ -310,8 +352,8 @@ hold, idle time), mount-failure cleanup, audio mode transitions, and the `f_mkfs
 
 | Tool | Purpose |
 |------|---------|
-| `tools/md3.py` | Album and game content: `status`, `ls`, `backup`, `convert`, `push`, `rm`, `restore`, `eject` (for the stock firmware; 0.3.0 keeps the files but shows no pictures) |
-| `tools/md3ctl.py` | The USB control channel (0.2.4; `eq-scale` needs 0.3.0, and `time`/`sun`/`sync` were removed with the clock) |
+| `tools/md3.py` | Album and game content for the stock firmware: `status`, `ls`, `backup`, `convert`, `push`, `rm`, `restore`, `eject` (md3fw keeps the files but shows no pictures; macOS only) |
+| `tools/md3ctl.py` | The USB control channel (`eq-scale` needs 0.3.0 or later) |
 | `tools/eq_design.py` | Designs the EQ presets' coefficients and writes `firmware/main/eq_coeffs.h` |
 | `tools/md3_deploy.py` | Hands-free write of a new build to 0x10000 with readback |
 | `tools/md3_factory_restore.py` | Byte-for-byte return to your own factory dump |
@@ -320,5 +362,6 @@ hold, idle time), mount-failure cleanup, audio mode transitions, and the `f_mkfs
 | `tools/analyze_flash.py` | Partition table and image header from a flash dump |
 | `tools/make_gif.py` | A 240x240 test card (for the stock firmware's album) |
 
-Python 3.11 with `esptool` 5.x, `pyusb` (and libusb) and `Pillow`. Written and used on macOS; the
-volume handling in `md3.py` and `md3_deploy.py` assumes macOS (`diskutil`, `dot_clean`).
+Python 3.11 with `esptool` 5.x, `pyusb` (and libusb) and `Pillow`. Written on macOS and now used
+from Linux for dumping, flashing and the control channel. The volume handling in `md3.py` and
+`md3_deploy.py` still assumes macOS (`diskutil`, `dot_clean`).
