@@ -17,6 +17,7 @@ import contextlib
 import glob
 import hashlib
 import io
+import os
 import sys
 import time
 from datetime import datetime
@@ -68,7 +69,9 @@ def wait_for_port(seconds: float) -> str | None:
     existing = candidate_ports()
     deadline = time.monotonic() + seconds
     while time.monotonic() < deadline:
-        fresh = candidate_ports() - existing
+        # On Linux the node appears a few ms before udev gives it its group; opening it
+        # then fails with EACCES, so a fresh node only counts once it is writable.
+        fresh = {p for p in candidate_ports() - existing if os.access(p, os.R_OK | os.W_OK)}
         if fresh:
             return sorted(fresh)[0]
         time.sleep(0.005)
