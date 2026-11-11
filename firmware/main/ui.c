@@ -20,9 +20,7 @@
 #include "jpeg_decoder.h"
 #include "link.h"
 #include "md3.h"
-#include "net.h"
 #include "power.h"
-#include "radio_ble.h"
 #include "settings.h"
 #include "storage.h"
 #include "tinyusb.h"
@@ -51,7 +49,7 @@ static bool s_backlight_off;
 static int64_t s_last_hold_us;
 
 // main
-static lv_obj_t *s_main, *s_arc, *s_vol, *s_rate, *s_status, *s_wifi;
+static lv_obj_t *s_main, *s_arc, *s_vol, *s_rate, *s_status;
 // album / remote share one full-screen stage
 static lv_obj_t *s_stage, *s_stage_img, *s_stage_gif, *s_stage_text;
 static lv_image_dsc_t s_stage_dsc;
@@ -82,11 +80,7 @@ static int64_t s_storage_read_us;
 
 bool md3_post(const md3_event_t *ev)
 {
-    if (!s_queue || xQueueSend(s_queue, ev, 0) != pdTRUE) {
-        free(ev->data);
-        return false;
-    }
-    return true;
+    return s_queue && xQueueSend(s_queue, ev, 0) == pdTRUE;
 }
 
 // ------------------------------------------------------------------ helpers
@@ -117,7 +111,6 @@ static void publish_state(void)
         .sun_rise = s_sun_rise,
         .sun_set = s_sun_set,
     };
-    md3_net_get(&snapshot.net);
     strlcpy(snapshot.screen, ui_screen_name(), sizeof(snapshot.screen));
     md3_state_publish(&snapshot);
 }
@@ -176,30 +169,10 @@ static void main_refresh(void)
     } else {
         lv_label_set_text_fmt(s_vol, "%u", g_settings.volume);
     }
-    md3_net_t net;
-    md3_net_get(&net);
-    if (net.connected) {
-        lv_label_set_text(s_rate, g_link.rate_label);
-    } else if (!net.scan_done) {
-        lv_label_set_text(s_rate, "Wi-Fi scan...");
-    } else if (net.scan_error != ESP_OK) {
-        lv_label_set_text(s_rate, "Wi-Fi: error");
-    } else if (!net.scan_count) {
-        lv_label_set_text(s_rate, "Wi-Fi: none");
-    } else {
-        lv_label_set_text_fmt(s_rate, "%u nets  %ddBm", (unsigned)net.scan_count, net.scan_rssi);
-    }
-    const int ble_status = radio_ble_status();
-    if (ble_status > 0) {
-        lv_label_set_text(s_status, "BLE: MD3 Radio");
-    } else if (ble_status < 0) {
-        lv_label_set_text_fmt(s_status, "BLE: error %d", ble_status);
-    } else {
-        snprintf(buf, sizeof(buf), "F%d  %s  %s%s", g_settings.filter + 1, g_settings.gain_high ? "HI" : "LO",
-                 g_settings.vol_from_host ? "HOST" : "FIXED", s_vista_locked ? "  " LV_SYMBOL_EYE_CLOSE : "");
-        lv_label_set_text(s_status, buf);
-    }
-    lv_obj_set_style_text_color(s_wifi, net.connected ? COLOR_ACCENT : COLOR_TRACK, 0);
+    lv_label_set_text(s_rate, g_link.rate_label);
+    snprintf(buf, sizeof(buf), "F%d  %s  %s%s", g_settings.filter + 1, g_settings.gain_high ? "HI" : "LO",
+             g_settings.vol_from_host ? "HOST" : "FIXED", s_vista_locked ? "  " LV_SYMBOL_EYE_CLOSE : "");
+    lv_label_set_text(s_status, buf);
 }
 
 static void build_main(void)
@@ -235,11 +208,6 @@ static void build_main(void)
     lv_obj_set_style_text_font(s_status, &lv_font_montserrat_14, 0);
     lv_obj_set_style_text_color(s_status, COLOR_DIM, 0);
     lv_obj_align(s_status, LV_ALIGN_CENTER, 0, 68);
-
-    s_wifi = lv_label_create(s_main);
-    lv_label_set_text(s_wifi, LV_SYMBOL_WIFI);
-    lv_obj_set_style_text_font(s_wifi, &lv_font_montserrat_14, 0);
-    lv_obj_align(s_wifi, LV_ALIGN_CENTER, 0, -62);
     main_refresh();
 }
 
@@ -781,84 +749,6 @@ static void handle_event(md3_event_t *ev)
         dac_apply_volume();
         main_refresh();
         break;
-    case EV_SETTINGS: {
-        md3_settings_patch_t *patch = (md3_settings_patch_t *)ev->data;
-        if (!patch) {
-            break;
-        }
-        if (patch->mask & MD3_SET_VOLUME) g_settings.volume = patch->value.volume;
-        if (patch->mask & MD3_SET_FILTER) g_settings.filter = patch->value.filter;
-        if (patch->mask & MD3_SET_GAIN_HIGH) g_settings.gain_high = !!patch->value.gain_high;
-        if (patch->mask & MD3_SET_VOL_FROM_HOST) g_settings.vol_from_host = !!patch->value.vol_from_host;
-        if (patch->mask & MD3_SET_BRIGHTNESS) g_settings.brightness = patch->value.brightness;
-        if (patch->mask & MD3_SET_ROTATION) g_settings.rotation = patch->value.rotation;
-        if (patch->mask & MD3_SET_UAC1) g_settings.uac1 = !!patch->value.uac1;
-        const bool power_cycle = patch->mask & MD3_SET_UAC1;
-        free(patch);
-        ev->data = NULL;
-        if (power_cycle) {
-            if (audio_power_cycle() != ESP_OK) {
-                ESP_LOGW(TAG, "DAC not ready after network UAC change");
-            }
-        } else {
-            dac_apply_filter();
-            dac_apply_volume();
-        }
-        apply_brightness();
-        apply_rotation();
-        settings_touch();
-        main_refresh();
-        if (s_screen == SCR_MENU) {
-            menu_refresh();
-        }
-        break;
-    }
-    case EV_NET:
-        main_refresh();
-        if (s_screen == SCR_MENU) {
-            menu_refresh();
-        }
-        break;
-    case EV_HOME:
-        stage_clear();
-        main_refresh();
-        show_screen(SCR_MAIN);
-        break;
-    case EV_SHOW_FRAME:
-        if (!ev->data || ev->len != FRAME_BYTES) {
-            ESP_LOGW(TAG, "rejected raw frame with invalid length");
-            free(ev->data);
-            break;
-        }
-        stage_clear();
-        memcpy(s_stage_pixels, ev->data, FRAME_BYTES);
-        free(ev->data);
-        stage_show_pixels(LCD_H_RES, LCD_V_RES);
-        show_screen(SCR_REMOTE);
-        break;
-    case EV_SHOW_JPEG:
-        if (!ev->data || !ev->len || ev->len > 2 * 1024 * 1024) {
-            free(ev->data);
-            break;
-        }
-        stage_clear();
-        if (stage_show_jpeg(ev->data, ev->len) != ESP_OK) {
-            stage_show_text("Bad JPEG", 0x8A8F94);
-        }
-        free(ev->data);
-        show_screen(SCR_REMOTE);
-        break;
-    case EV_SHOW_GIF:
-        if (!ev->data || ev->len < 6 || ev->len > 2 * 1024 * 1024 || memcmp(ev->data, "GIF8", 4)) {
-            free(ev->data);
-            break;
-        }
-        stage_clear();
-        if (!stage_show_gif(ev->data, ev->len)) {  // UI keeps the buffer
-            stage_show_text("Bad GIF", 0x8A8F94);
-        }
-        show_screen(SCR_REMOTE);
-        break;
     case EV_CLOCK:
         clock_set_seconds((int)ev->value);
         ESP_LOGI(TAG, "clock set to %02lu:%02lu:%02lu over USB control", (unsigned long)ev->value / 3600,
@@ -873,20 +763,6 @@ static void handle_event(md3_event_t *ev)
     case EV_OFFER:
     case EV_ROM:
         break;  // handled by ui_task outside the LVGL lock
-    case EV_SHOW_TEXT:
-        if (!ev->data || !ev->len || !memchr(ev->data, '\0', ev->len)) {
-            free(ev->data);
-            break;
-        }
-        stage_clear();
-        stage_show_text((const char *)ev->data, ev->color);
-        free(ev->data);
-        show_screen(SCR_REMOTE);
-        break;
-    }
-    if (s_backlight_off && ev->type >= EV_SHOW_FRAME && ev->type <= EV_SHOW_TEXT) {
-        s_backlight_off = false;
-        apply_brightness();
     }
     publish_state();
 }
@@ -896,8 +772,6 @@ static void process_event(md3_event_t *ev)
     if (lvgl_port_lock(0)) {
         handle_event(ev);
         lvgl_port_unlock();
-    } else {
-        free(ev->data);
     }
 }
 
@@ -1138,10 +1012,6 @@ static void housekeeping(void)
         storage_requests_checked(generation);  // a mount made meanwhile keeps its hold
     }
     return_idle_volume();
-    if (net_take_dirty()) {
-        md3_event_t ev = {.type = EV_NET};
-        process_event(&ev);
-    }
     if (link_poll(&g_link)) {
         md3_event_t ev = {.type = EV_LINK};
         process_event(&ev);
@@ -1152,7 +1022,6 @@ static void housekeeping(void)
         }
     }
     settings_tick();
-    net_tick();
     if (s_screen == SCR_CLOCK && lvgl_port_lock(0)) {
         clock_refresh();
         lvgl_port_unlock();

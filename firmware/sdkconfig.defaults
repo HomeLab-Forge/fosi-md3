@@ -10,7 +10,7 @@ CONFIG_PARTITION_TABLE_CUSTOM=y
 CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
 CONFIG_PARTITION_TABLE_OFFSET=0x8000
 
-# ESP32-S3R8: 8 MiB octal PSRAM. Large LVGL/network allocations may use it.
+# ESP32-S3R8: 8 MiB octal PSRAM. Large LVGL allocations may use it.
 CONFIG_SPIRAM=y
 CONFIG_SPIRAM_MODE_OCT=y
 CONFIG_SPIRAM_TYPE_AUTO=y
@@ -18,7 +18,6 @@ CONFIG_SPIRAM_SPEED_80M=y
 CONFIG_SPIRAM_USE_MALLOC=y
 CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=16384
 CONFIG_SPIRAM_MALLOC_RESERVE_INTERNAL=32768
-CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y
 
 # LVGL 9: C malloc integrates with SPIRAM; enable exactly what the UI uses.
 CONFIG_LV_USE_CLIB_MALLOC=y
@@ -39,22 +38,6 @@ CONFIG_FATFS_SECTOR_4096=y
 CONFIG_WL_SECTOR_SIZE_4096=y
 CONFIG_I2C_ENABLE_SLAVE_DRIVER_VERSION_2=y
 
-# Station-only LAN control, with socket headroom for four HTTP clients.
-CONFIG_ESP_WIFI_SOFTAP_SUPPORT=n
-CONFIG_ESP_WIFI_ENTERPRISE_SUPPORT=n
-CONFIG_ETH_USE_ESP32_EMAC=n
-CONFIG_ETH_USE_SPI_ETHERNET=n
-CONFIG_ETH_ENABLED=n
-CONFIG_LWIP_MAX_SOCKETS=12
-CONFIG_LWIP_LOCAL_HOSTNAME="md3"
-CONFIG_MDNS_ENABLE_CONSOLE_CLI=n
-CONFIG_MDNS_ENABLE_BROWSE=n
-CONFIG_MDNS_PREDEF_NETIF_STA=y
-CONFIG_MDNS_PREDEF_NETIF_AP=n
-CONFIG_MDNS_PREDEF_NETIF_ETH=n
-CONFIG_HTTPD_MAX_REQ_HDR_LEN=1024
-CONFIG_HTTPD_MAX_URI_LEN=512
-
 # Photo Sync: full-speed TinyUSB MSC with 4 KiB sectors and the stock identity.
 CONFIG_TINYUSB_RHPORT_FS=y
 CONFIG_TINYUSB_MSC_ENABLED=y
@@ -74,10 +57,10 @@ CONFIG_TINYUSB_FAT_FORMAT_SFD=n
 # Match the stock RTOS tick used by the reverse-engineered timings.
 CONFIG_FREERTOS_HZ=100
 
-# Radio hardware probe: a non-connectable NimBLE advertisement, broadcast for as long as the device runs.
-CONFIG_BT_ENABLED=y
-CONFIG_BT_NIMBLE_ENABLED=y
-CONFIG_BT_NIMBLE_50_FEATURE_SUPPORT=n
-CONFIG_BT_NIMBLE_MAX_CONNECTIONS=1
+# No radios: on this unit neither Wi-Fi nor Bluetooth was ever heard (docs/limits.md). Bluetooth
+# is off here; Wi-Fi has no Kconfig switch on this target, so main/ simply no longer requires
+# esp_wifi, lwIP or the HTTP server, and nothing ever starts the RF front end.
+CONFIG_BT_ENABLED=n
+
 # The USB control channel renders screenshots (lv_snapshot_take) on the TinyUSB task.
 CONFIG_TINYUSB_TASK_STACK_SIZE=8192
