@@ -31,10 +31,9 @@ compile-checked with the ESP32 cross compiler; they have not been run on a host 
 
 The app image is now about 0.77 MB (0.2.4: 1.6 MB).
 
-![Day-wheel](../images/day-wheel.png) ![Main screen](../images/main-screen.png)
+![Status screen](../images/status-screen.png)
 
-*Screenshots of 0.2.4. Both screens are gone in 0.3.0; the new one is drawn in
-[`design/status-screen.html`](../design/status-screen.html).*
+*The status screen, rendered from [`design/status-screen.html`](../design/status-screen.html).*
 
 ## What 0.2.4 did
 

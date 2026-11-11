@@ -9,7 +9,7 @@ next owner (or Fosi) can start where we stopped.
 **Status: archived, 2026-10-31.** The unit went back to the store with its factory flash
 restored and verified byte for byte. Nothing here has been tried on a second unit.
 
-![The day-wheel of open firmware 0.2.4 (removed in 0.3.0)](images/day-wheel.png)
+![The status screen of open firmware 0.3.1: Warm preset at 44.1 kHz](images/status-screen.png)
 
 ## The verdict
 
