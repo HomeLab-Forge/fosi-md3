@@ -28,8 +28,6 @@ typedef enum {
 typedef enum {
     EV_KEY,
     EV_LINK,          // host volume / rate changed
-    EV_CLOCK,         // value = seconds of day, set by the host
-    EV_SUN,           // value = sunrise minute | sunset minute << 16, set by the host
     EV_OFFER,         // host asks for the volume back now
     EV_ROM,           // host asks for ROM download mode
 } md3_event_type_t;
@@ -38,7 +36,7 @@ typedef struct {
     md3_event_type_t type;
     md3_key_t key;
     md3_press_t press;
-    uint32_t value;   // EV_CLOCK, EV_SUN argument
+    uint32_t value;   // event argument
 } md3_event_t;
 
 /** Queue an event for the UI task; false if the queue is absent or full. */
@@ -56,11 +54,6 @@ typedef struct {
     uint64_t storage_free;
     uint32_t storage_holds;
     char screen[8];
-    bool clock_set;   // false until a host sets the time; the day-wheel then shows no time
-    int clock_seconds;
-    bool sun_known;   // false: the wheel splits day and night at 06:00 and 18:00
-    int sun_rise;     // minutes of day
-    int sun_set;
 } md3_snapshot_t;
 
 void md3_state_init(void);

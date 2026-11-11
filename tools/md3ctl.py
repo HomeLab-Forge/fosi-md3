@@ -5,9 +5,6 @@ here ejects or remounts the drive. Requests are defined in firmware/main/usb_ctl
 
 Usage:
   md3ctl.py info                      status JSON
-  md3ctl.py time [HH:MM[:SS]]         set the day-wheel clock (default: the Mac's local time)
-  md3ctl.py sun [RISE SET]            set sunrise/sunset as HH:MM (default: computed from MD3_LATITUDE/MD3_LONGITUDE)
-  md3ctl.py sync                      time + sun in one call
   md3ctl.py key NAME [click|double|long|hold]   NAME: vol_up vol_down menu vista
   md3ctl.py shot [PATH]               screenshot as BMP (default captures/md3-<time>.bmp)
   md3ctl.py log                       the firmware's recent log text
@@ -20,8 +17,6 @@ from __future__ import annotations
 
 import datetime as dt
 import json
-import math
-import os
 import plistlib
 import re
 import struct
@@ -34,7 +29,7 @@ import usb.core
 PROJECT = Path(__file__).resolve().parent.parent
 VID, PID = 0x303A, 0x4002
 OUT, IN = 0x40, 0xC0
-INFO, TIME, KEY, SHOT, READ, LOG, OFFER, ROM, SUN = range(1, 10)
+INFO, _TIME, KEY, SHOT, READ, LOG, OFFER, ROM, _SUN = range(1, 10)  # TIME and SUN retired with the clock
 ROM_VALUE, ROM_INDEX = 0x524D, 0x3344
 KEYS = {"vol_up": 0, "vol_down": 1, "menu": 2, "vista": 3}
 PRESSES = {"click": 0, "double": 1, "long": 2, "hold": 3}
@@ -42,8 +37,6 @@ CHUNK = 32 * 1024
 TIMEOUT_MS = 3000
 MEDIA_NAME = "Fosi Audio MD3"
 _volume_cache: dict[str, str] = {}
-# Where the day-wheel's sun is computed: set MD3_LATITUDE and MD3_LONGITUDE (decimal degrees,
-# east positive), or pass RISE and SET to `sun` explicitly.
 
 
 class NoDevice(RuntimeError):
@@ -98,43 +91,6 @@ def info(dev=None) -> dict:
     return json.loads(_in(INFO, 2048, dev=dev).decode())
 
 
-def set_time(when: dt.datetime | None = None, dev=None) -> dt.datetime:
-    when = when or dt.datetime.now()
-    _out(TIME, when.hour * 60 + when.minute, when.second, dev=dev)
-    return when
-
-
-def sun_times(day: dt.date | None = None) -> tuple[int, int]:
-    """Local sunrise and sunset as minutes of day (NOAA solar position, ±2 min)."""
-    if not (os.environ.get("MD3_LATITUDE") and os.environ.get("MD3_LONGITUDE")):
-        raise SystemExit("set MD3_LATITUDE and MD3_LONGITUDE, or pass RISE SET explicitly")
-    LATITUDE = float(os.environ["MD3_LATITUDE"])
-    LONGITUDE = float(os.environ["MD3_LONGITUDE"])
-    day = day or dt.date.today()
-    noon = dt.datetime.combine(day, dt.time(12)).astimezone()
-    utc_offset_min = noon.utcoffset().total_seconds() / 60
-    gamma = 2 * math.pi / 365 * (day.timetuple().tm_yday - 1)
-    eqtime = 229.18 * (0.000075 + 0.001868 * math.cos(gamma) - 0.032077 * math.sin(gamma)
-                       - 0.014615 * math.cos(2 * gamma) - 0.040849 * math.sin(2 * gamma))
-    decl = (0.006918 - 0.399912 * math.cos(gamma) + 0.070257 * math.sin(gamma)
-            - 0.006758 * math.cos(2 * gamma) + 0.000907 * math.sin(2 * gamma)
-            - 0.002697 * math.cos(3 * gamma) + 0.00148 * math.sin(3 * gamma))
-    lat = math.radians(LATITUDE)
-    cos_ha = (math.cos(math.radians(90.833)) / (math.cos(lat) * math.cos(decl))
-              - math.tan(lat) * math.tan(decl))
-    ha = math.degrees(math.acos(max(-1.0, min(1.0, cos_ha))))
-    rise = 720 - 4 * (LONGITUDE + ha) - eqtime + utc_offset_min
-    sset = 720 - 4 * (LONGITUDE - ha) - eqtime + utc_offset_min
-    return round(rise) % 1440, round(sset) % 1440
-
-
-def set_sun(rise: int | None = None, sset: int | None = None, dev=None) -> tuple[int, int]:
-    if rise is None or sset is None:
-        rise, sset = sun_times()
-    _out(SUN, rise, sset, dev=dev)
-    return rise, sset
-
-
 def key(name: str, press: str = "click", dev=None) -> None:
     _out(KEY, KEYS[name], PRESSES[press], dev=dev)
 
@@ -174,11 +130,6 @@ def reenumerate(dev=None) -> None:
     (dev or find()).reset()
 
 
-def _hhmm(text: str) -> int:
-    hours, minutes = text.split(":")[:2]
-    return int(hours) * 60 + int(minutes)
-
-
 def main(argv: list[str]) -> int:
     if not argv or argv[0] in ("-h", "--help"):
         print(__doc__.strip())
@@ -187,20 +138,6 @@ def main(argv: list[str]) -> int:
     try:
         if cmd == "info":
             print(json.dumps(info(), indent=2))
-        elif cmd == "time":
-            when = None
-            if args:
-                parts = [int(p) for p in args[0].split(":")] + [0]
-                when = dt.datetime.now().replace(hour=parts[0], minute=parts[1], second=parts[2])
-            print(f"clock set to {set_time(when):%H:%M:%S}")
-        elif cmd == "sun":
-            rise, sset = set_sun(*(map(_hhmm, args[:2]) if len(args) >= 2 else ()))
-            print(f"sun set: rise {rise // 60:02d}:{rise % 60:02d}, set {sset // 60:02d}:{sset % 60:02d}")
-        elif cmd == "sync":
-            dev = find()
-            when = set_time(dev=dev)
-            rise, sset = set_sun(dev=dev)
-            print(f"clock {when:%H:%M:%S}; sun {rise // 60:02d}:{rise % 60:02d}-{sset // 60:02d}:{sset % 60:02d}")
         elif cmd == "key":
             key(args[0], args[1] if len(args) > 1 else "click")
         elif cmd == "shot":

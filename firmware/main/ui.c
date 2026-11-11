@@ -1,6 +1,5 @@
 #include "ui.h"
 
-#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -12,12 +11,10 @@
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_lvgl_port.h"
-#include "esp_random.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "freertos/task.h"
-#include "jpeg_decoder.h"
 #include "link.h"
 #include "md3.h"
 #include "power.h"
@@ -28,7 +25,6 @@
 
 static const char *TAG = "ui";
 
-#define FRAME_BYTES     (LCD_H_RES * LCD_V_RES * 2)
 #define COLOR_BG        lv_color_hex(0x06080A)
 #define COLOR_TRACK     lv_color_hex(0x202428)
 #define COLOR_ACCENT    lv_color_hex(0xFF6018)
@@ -37,7 +33,7 @@ static const char *TAG = "ui";
 #define HOLD_REPEAT_US  70000
 #define TOAST_MS        1500
 
-typedef enum { SCR_MAIN, SCR_ALBUM, SCR_REMOTE, SCR_MENU, SCR_CLOCK } screen_t;
+typedef enum { SCR_MAIN, SCR_MENU } screen_t;
 
 extern link_state_t g_link;
 
@@ -50,30 +46,12 @@ static int64_t s_last_hold_us;
 
 // main
 static lv_obj_t *s_main, *s_arc, *s_vol, *s_rate, *s_status;
-// album / remote share one full-screen stage
-static lv_obj_t *s_stage, *s_stage_img, *s_stage_gif, *s_stage_text;
-static lv_image_dsc_t s_stage_dsc;
-static uint8_t *s_stage_pixels;   // RGB565 frame shown by s_stage_img
-static uint8_t *s_stage_gif_data; // GIF bytes kept alive while playing
-static lv_image_dsc_t s_gif_dsc;
-// album position
-static int s_album_index;
 // menu
 static lv_obj_t *s_menu, *s_menu_title, *s_menu_rows[5];
 static int s_menu_sel;
 // volume toast on the top layer
 static lv_obj_t *s_toast;
 static lv_timer_t *s_toast_timer;
-// 24-hour day-wheel
-static lv_obj_t *s_clock, *s_clock_hand, *s_clock_tip, *s_clock_time, *s_clock_day, *s_clock_night;
-static lv_point_precise_t s_clock_points[2];
-static int s_clock_last_minute = -1;
-static int s_clock_seconds;        // seconds of day at s_clock_epoch_us
-static int64_t s_clock_epoch_us;
-static bool s_clock_set;           // only a host knows the time; until then the wheel shows none
-static int s_sun_rise = 6 * 60;    // minutes of day; 06:00/18:00 until a host sends the real sun
-static int s_sun_set = 18 * 60;
-static bool s_sun_known;
 static uint64_t s_storage_total;
 static uint64_t s_storage_free;
 static int64_t s_storage_read_us;
@@ -105,11 +83,6 @@ static void publish_state(void)
         .storage_total = s_storage_total,
         .storage_free = s_storage_free,
         .storage_holds = storage_holds(),
-        .clock_set = s_clock_set,
-        .clock_seconds = (int)((s_clock_seconds + (esp_timer_get_time() - s_clock_epoch_us) / 1000000) % 86400),
-        .sun_known = s_sun_known,
-        .sun_rise = s_sun_rise,
-        .sun_set = s_sun_set,
     };
     strlcpy(snapshot.screen, ui_screen_name(), sizeof(snapshot.screen));
     md3_state_publish(&snapshot);
@@ -138,24 +111,10 @@ static const char *filter_name(int f)
     return names[f & 7];
 }
 
-static void stage_clear(void)
-{
-    lv_obj_add_flag(s_stage_img, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_add_flag(s_stage_text, LV_OBJ_FLAG_HIDDEN);
-    if (s_stage_gif) {
-        lv_obj_delete(s_stage_gif);
-        s_stage_gif = NULL;
-    }
-    free(s_stage_gif_data);
-    s_stage_gif_data = NULL;
-}
-
 static void show_screen(screen_t scr)
 {
     s_screen = scr;
-    storage_hold(STORAGE_HOLD_ALBUM, scr == SCR_ALBUM);
-    lv_obj_t *target = scr == SCR_MAIN ? s_main : scr == SCR_MENU ? s_menu : scr == SCR_CLOCK ? s_clock : s_stage;
-    lv_screen_load(target);
+    lv_screen_load(scr == SCR_MAIN ? s_main : s_menu);
 }
 
 // ------------------------------------------------------------------ main dial
@@ -211,310 +170,10 @@ static void build_main(void)
     main_refresh();
 }
 
-// ------------------------------------------------------------------ 24-hour day-wheel
-
-static void clock_refresh(void)
-{
-    const int64_t elapsed = (esp_timer_get_time() - s_clock_epoch_us) / 1000000;
-    const int minute = (int)((s_clock_seconds + elapsed) % 86400) / 60;
-    if (minute == s_clock_last_minute) {
-        return;
-    }
-    s_clock_last_minute = minute;
-    if (!s_clock_set) {
-        // No host has told us the time since boot: show no hand rather than a guess.
-        lv_obj_add_flag(s_clock_hand, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_add_flag(s_clock_tip, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_set_style_text_color(s_clock_time, COLOR_DIM, 0);
-        lv_label_set_text(s_clock_time, "--:--");
-        return;
-    }
-    lv_obj_remove_flag(s_clock_hand, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_remove_flag(s_clock_tip, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_set_style_text_color(s_clock_time, COLOR_ACCENT, 0);
-    const float angle = (minute - 12 * 60) * (float)M_PI / (12 * 60);
-    const float x = 120 + 82 * sinf(angle);
-    const float y = 120 - 82 * cosf(angle);
-    s_clock_points[0] = (lv_point_precise_t){120, 120};
-    s_clock_points[1] = (lv_point_precise_t){x, y};
-    lv_line_set_points(s_clock_hand, s_clock_points, 2);
-    lv_obj_set_pos(s_clock_tip, (int)x - 7, (int)y - 7);
-    const bool daylight = s_sun_rise < s_sun_set ? minute >= s_sun_rise && minute < s_sun_set
-                                                 : minute >= s_sun_rise || minute < s_sun_set;
-    const lv_color_t hand_color = daylight ? COLOR_ACCENT : lv_color_hex(0x80B0D0);
-    lv_obj_set_style_line_color(s_clock_hand, hand_color, 0);
-    lv_obj_set_style_bg_color(s_clock_tip, hand_color, 0);
-    lv_label_set_text_fmt(s_clock_time, "%02d:%02d", minute / 60, minute % 60);
-}
-
-static void clock_set_seconds(int seconds)
-{
-    s_clock_seconds = seconds % 86400;
-    s_clock_epoch_us = esp_timer_get_time();
-    s_clock_set = true;
-    s_clock_last_minute = -1;
-    clock_refresh();
-}
-
-// LVGL arc angle (0 = 3 o'clock, clockwise) of a minute of day on the wheel (noon up, midnight down).
-static int wheel_angle(int minute)
-{
-    return ((minute + 12 * 60) % (24 * 60) / 4 + 270) % 360;
-}
-
-static void clock_apply_sun(void)
-{
-    lv_arc_set_bg_angles(s_clock_day, wheel_angle(s_sun_rise), wheel_angle(s_sun_set));
-    lv_arc_set_bg_angles(s_clock_night, wheel_angle(s_sun_set), wheel_angle(s_sun_rise));
-    s_clock_last_minute = -1;
-    clock_refresh();
-}
-
-static void build_clock(void)
-{
-    s_clock = lv_obj_create(NULL);
-    lv_obj_set_style_bg_color(s_clock, COLOR_BG, 0);
-    lv_obj_remove_flag(s_clock, LV_OBJ_FLAG_SCROLLABLE);
-
-    lv_obj_t *day = s_clock_day = lv_arc_create(s_clock);
-    lv_obj_set_size(day, 208, 208);
-    lv_obj_center(day);
-    lv_arc_set_bg_angles(day, 180, 360);  // 06:00 left -> noon -> 18:00 right, upper half
-    lv_arc_set_range(day, 0, 100);
-    lv_arc_set_value(day, 100);
-    lv_obj_remove_style(day, NULL, LV_PART_KNOB);
-    lv_obj_remove_flag(day, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_set_style_arc_opa(day, LV_OPA_TRANSP, LV_PART_MAIN);
-    lv_obj_set_style_arc_width(day, 4, LV_PART_MAIN);
-    lv_obj_set_style_arc_width(day, 4, LV_PART_INDICATOR);
-    lv_obj_set_style_arc_color(day, lv_color_hex(0x705020), LV_PART_INDICATOR);
-
-    lv_obj_t *night = s_clock_night = lv_arc_create(s_clock);
-    lv_obj_set_size(night, 208, 208);
-    lv_obj_center(night);
-    lv_arc_set_bg_angles(night, 0, 180);  // 18:00 right -> midnight -> 06:00 left, lower half
-    lv_arc_set_range(night, 0, 100);
-    lv_arc_set_value(night, 100);
-    lv_obj_remove_style(night, NULL, LV_PART_KNOB);
-    lv_obj_remove_flag(night, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_set_style_arc_opa(night, LV_OPA_TRANSP, LV_PART_MAIN);
-    lv_obj_set_style_arc_width(night, 4, LV_PART_MAIN);
-    lv_obj_set_style_arc_width(night, 4, LV_PART_INDICATOR);
-    lv_obj_set_style_arc_color(night, lv_color_hex(0x203848), LV_PART_INDICATOR);
-
-    const struct { const char *text; int x; int y; } marks[] = {
-        {"12", 0, -96}, {"18", 96, 0}, {"00", 0, 96}, {"06", -96, 0},
-    };
-    for (size_t i = 0; i < sizeof(marks) / sizeof(marks[0]); i++) {
-        lv_obj_t *mark = lv_label_create(s_clock);
-        lv_label_set_text(mark, marks[i].text);
-        lv_obj_set_style_text_font(mark, &lv_font_montserrat_14, 0);
-        lv_obj_set_style_text_color(mark, COLOR_DIM, 0);
-        lv_obj_align(mark, LV_ALIGN_CENTER, marks[i].x, marks[i].y);
-    }
-    lv_obj_t *title = lv_label_create(s_clock);
-    lv_label_set_text(title, "DAY WHEEL");
-    lv_obj_set_style_text_font(title, &lv_font_montserrat_14, 0);
-    lv_obj_set_style_text_color(title, COLOR_DIM, 0);
-    lv_obj_align(title, LV_ALIGN_CENTER, 0, -52);
-
-    s_clock_hand = lv_line_create(s_clock);
-    lv_obj_set_style_line_width(s_clock_hand, 4, 0);
-    lv_obj_set_style_line_color(s_clock_hand, COLOR_ACCENT, 0);
-    lv_obj_set_style_line_rounded(s_clock_hand, true, 0);
-
-    s_clock_tip = lv_obj_create(s_clock);
-    lv_obj_set_size(s_clock_tip, 14, 14);
-    lv_obj_set_style_radius(s_clock_tip, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_bg_color(s_clock_tip, COLOR_ACCENT, 0);
-    lv_obj_set_style_border_width(s_clock_tip, 0, 0);
-    lv_obj_remove_flag(s_clock_tip, LV_OBJ_FLAG_CLICKABLE);
-
-    lv_obj_t *hub = lv_obj_create(s_clock);
-    lv_obj_set_size(hub, 8, 8);
-    lv_obj_center(hub);
-    lv_obj_set_style_radius(hub, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_bg_color(hub, COLOR_TEXT, 0);
-    lv_obj_set_style_border_width(hub, 0, 0);
-    lv_obj_remove_flag(hub, LV_OBJ_FLAG_CLICKABLE);
-
-    s_clock_time = lv_label_create(s_clock);
-    lv_obj_set_style_text_font(s_clock_time, &lv_font_montserrat_20, 0);
-    lv_obj_set_style_text_color(s_clock_time, COLOR_ACCENT, 0);
-    lv_obj_align(s_clock_time, LV_ALIGN_CENTER, 0, 52);
-    s_clock_epoch_us = esp_timer_get_time();
-    clock_apply_sun();
-}
-
-// ------------------------------------------------------------------ stage (album + remote)
-
-static bool build_stage(void)
-{
-    s_stage = lv_obj_create(NULL);
-    lv_obj_set_style_bg_color(s_stage, lv_color_black(), 0);
-    lv_obj_remove_flag(s_stage, LV_OBJ_FLAG_SCROLLABLE);
-
-    s_stage_pixels = heap_caps_calloc(1, FRAME_BYTES, MALLOC_CAP_SPIRAM);
-    if (!s_stage_pixels) {
-        return false;
-    }
-    s_stage_dsc = (lv_image_dsc_t){
-        .header = {.magic = LV_IMAGE_HEADER_MAGIC, .cf = LV_COLOR_FORMAT_RGB565,
-                   .w = LCD_H_RES, .h = LCD_V_RES, .stride = LCD_H_RES * 2},
-        .data_size = FRAME_BYTES,
-        .data = s_stage_pixels,
-    };
-    s_stage_img = lv_image_create(s_stage);
-    lv_obj_center(s_stage_img);
-    lv_obj_add_flag(s_stage_img, LV_OBJ_FLAG_HIDDEN);
-
-    s_stage_text = lv_label_create(s_stage);
-    lv_label_set_long_mode(s_stage_text, LV_LABEL_LONG_WRAP);
-    lv_obj_set_width(s_stage_text, 180);
-    lv_obj_set_style_text_align(s_stage_text, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_set_style_text_font(s_stage_text, &lv_font_montserrat_28, 0);
-    lv_obj_center(s_stage_text);
-    lv_obj_add_flag(s_stage_text, LV_OBJ_FLAG_HIDDEN);
-    return true;
-}
-
-static void stage_show_pixels(int w, int h)
-{
-    s_stage_dsc.header.w = w;
-    s_stage_dsc.header.h = h;
-    s_stage_dsc.header.stride = w * 2;
-    s_stage_dsc.data_size = w * h * 2;
-    lv_image_cache_drop(&s_stage_dsc);
-    lv_image_set_src(s_stage_img, &s_stage_dsc);
-    lv_obj_center(s_stage_img);
-    lv_obj_remove_flag(s_stage_img, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_invalidate(s_stage_img);
-}
-
-static esp_err_t stage_show_jpeg(const uint8_t *jpg, size_t len)
-{
-    esp_jpeg_image_cfg_t cfg = {
-        .indata = (uint8_t *)jpg,
-        .indata_size = len,
-        .out_format = JPEG_IMAGE_FORMAT_RGB565,
-        .out_scale = JPEG_IMAGE_SCALE_0,
-    };
-    esp_jpeg_image_output_t info;
-    ESP_RETURN_ON_ERROR(esp_jpeg_get_image_info(&cfg, &info), TAG, "jpeg header");
-    for (esp_jpeg_image_scale_t s = JPEG_IMAGE_SCALE_0; info.width > LCD_H_RES || info.height > LCD_V_RES; ) {
-        ESP_RETURN_ON_FALSE(s < JPEG_IMAGE_SCALE_1_8, ESP_ERR_INVALID_SIZE, TAG, "jpeg too large");
-        s++;
-        cfg.out_scale = s;
-        ESP_RETURN_ON_ERROR(esp_jpeg_get_image_info(&cfg, &info), TAG, "jpeg scale");
-    }
-    cfg.outbuf = s_stage_pixels;
-    cfg.outbuf_size = FRAME_BYTES;
-    ESP_RETURN_ON_ERROR(esp_jpeg_decode(&cfg, &info), TAG, "jpeg decode");
-    stage_show_pixels(info.width, info.height);
-    return ESP_OK;
-}
-
-static bool stage_show_gif(uint8_t *data, size_t len)
-{
-    s_stage_gif_data = data;  // owned until the next stage_clear()
-    // LVGL 9.2's decoder accepts only GIF89a, while much of the stock library is
-    // GIF87a. The basic frame format is compatible; normalize only our RAM copy.
-    if (len >= 6 && !memcmp(data, "GIF87a", 6)) {
-        memcpy(data + 3, "89a", 3);
-    }
-    s_gif_dsc = (lv_image_dsc_t){
-        .header = {.magic = LV_IMAGE_HEADER_MAGIC, .cf = LV_COLOR_FORMAT_RAW},
-        .data_size = len,
-        .data = data,
-    };
-    s_stage_gif = lv_gif_create(s_stage);
-    lv_gif_set_src(s_stage_gif, &s_gif_dsc);
-    if (!lv_gif_is_loaded(s_stage_gif)) {
-        lv_obj_delete(s_stage_gif);
-        s_stage_gif = NULL;
-        free(s_stage_gif_data);
-        s_stage_gif_data = NULL;
-        return false;
-    }
-    lv_obj_center(s_stage_gif);
-    return true;
-}
-
-static void stage_show_text(const char *text, uint32_t color)
-{
-    lv_label_set_text(s_stage_text, text);
-    lv_obj_set_style_text_color(s_stage_text, lv_color_hex(color), 0);
-    lv_obj_remove_flag(s_stage_text, LV_OBJ_FLAG_HIDDEN);
-}
-
-// ------------------------------------------------------------------ album
-
-static void album_show(int step_folder, int step_file)
-{
-    // Opening the album is an explicit request for local ownership. Do not rely on
-    // every USB host sending the same eject/detach sequence before allowing reads.
-    if (storage_mount() != ESP_OK) {
-        stage_clear();
-        show_screen(SCR_ALBUM);
-        stage_show_text("Storage unavailable", 0x8A8F94);
-        return;
-    }
-    int folder = (g_settings.album_folder + step_folder) % STORAGE_FOLDERS;
-    char **names = NULL;
-    int count = 0;
-    // Skip empty folders, at most one full lap.
-    for (int lap = 0; lap < STORAGE_FOLDERS; lap++) {
-        count = storage_list(folder, &names);
-        if (count > 0) {
-            break;
-        }
-        storage_free_list(names, count);
-        names = NULL;
-        folder = (folder + 1) % STORAGE_FOLDERS;
-    }
-    stage_clear();
-    show_screen(SCR_ALBUM);
-    if (count == 0) {
-        stage_show_text("No pictures", 0x8A8F94);
-        return;
-    }
-    if (folder != g_settings.album_folder) {
-        g_settings.album_folder = folder;
-        settings_touch();
-        s_album_index = 0;
-    }
-    if (folder >= 3) {
-        s_album_index = esp_random() % count;  // games draw at random, like the stock firmware
-    } else {
-        s_album_index = (s_album_index + step_file + count) % count;
-    }
-    char path[96];
-    snprintf(path, sizeof(path), STORAGE_ROOT "/%s/%s", k_storage_folders[folder], names[s_album_index]);
-    storage_free_list(names, count);
-
-    uint8_t *data = NULL;
-    size_t len = 0;
-    if (storage_read(path, &data, &len) != ESP_OK) {
-        stage_show_text("Can't open picture", 0x8A8F94);
-        return;
-    }
-    ESP_LOGI(TAG, "album %s (%u bytes)", path, (unsigned)len);
-    if (len > 6 && !memcmp(data, "GIF8", 4)) {
-        if (!stage_show_gif(data, len)) {
-            stage_show_text("Unsupported picture", 0x8A8F94);
-        }
-    } else {
-        if (stage_show_jpeg(data, len) != ESP_OK) {
-            stage_show_text("Unsupported picture", 0x8A8F94);
-        }
-        free(data);
-    }
-}
-
 // ------------------------------------------------------------------ menu
 
 typedef enum {
-    MI_FILTER, MI_GAIN, MI_HOSTVOL, MI_BRIGHT, MI_ROTATE, MI_UAC, MI_UDISK, MI_CLOCK, MI_EXIT, MI_COUNT,
+    MI_FILTER, MI_GAIN, MI_HOSTVOL, MI_BRIGHT, MI_ROTATE, MI_UAC, MI_UDISK, MI_EXIT, MI_COUNT,
 } menu_item_t;
 
 static void menu_item_text(int item, char *buf, size_t n)
@@ -527,7 +186,6 @@ static void menu_item_text(int item, char *buf, size_t n)
     case MI_ROTATE: snprintf(buf, n, "Rotate: %d", (g_settings.rotation & 3) * 90); break;
     case MI_UAC: snprintf(buf, n, "USB audio: UAC %s", g_settings.uac1 ? "1.0" : "2.0"); break;
     case MI_UDISK: snprintf(buf, n, "USB mode: %s", g_settings.udisk_mode ? "U-Disk" : "DAC"); break;
-    case MI_CLOCK: snprintf(buf, n, "Day wheel"); break;
     default: snprintf(buf, n, "Exit"); break;
     }
 }
@@ -591,7 +249,6 @@ static void menu_activate(void)
         g_settings.udisk_mode ^= 1;
         power_cycle = true;
         break;
-    case MI_CLOCK: show_screen(SCR_CLOCK); return;
     default: main_refresh(); show_screen(SCR_MAIN); return;
     }
     if (power_cycle) {
@@ -690,12 +347,6 @@ static void handle_key(md3_key_t key, md3_press_t press)
         break;
     }
 
-    if (s_screen == SCR_CLOCK) {
-        main_refresh();
-        show_screen(SCR_MAIN);
-        return;
-    }
-
     if (vol && press != PRESS_LONG) {
         volume_step(dir);
         return;
@@ -704,14 +355,10 @@ static void handle_key(md3_key_t key, md3_press_t press)
         if (press == PRESS_LONG) {
             s_vista_locked = !s_vista_locked;
             main_refresh();
-        } else if (s_screen == SCR_MAIN) {
+        } else {
             s_menu_sel = 0;
             menu_refresh();
             show_screen(SCR_MENU);
-        } else {
-            stage_clear();
-            main_refresh();
-            show_screen(SCR_MAIN);
         }
         return;
     }
@@ -720,21 +367,9 @@ static void handle_key(md3_key_t key, md3_press_t press)
             s_backlight_off = true;
             apply_brightness();
         } else if (press == PRESS_DOUBLE) {
-            if (s_screen == SCR_ALBUM) {
-                album_show(1, 0);
-            } else if (s_screen == SCR_MAIN) {
-                g_settings.rotation = (g_settings.rotation + 1) & 3;
-                apply_rotation();
-                settings_touch();
-            }
-        } else if (s_screen == SCR_ALBUM) {
-            album_show(0, 1);
-        } else if (s_screen == SCR_REMOTE) {
-            stage_clear();
-            main_refresh();
-            show_screen(SCR_MAIN);
-        } else {
-            album_show(0, 0);
+            g_settings.rotation = (g_settings.rotation + 1) & 3;
+            apply_rotation();
+            settings_touch();
         }
     }
 }
@@ -748,17 +383,6 @@ static void handle_event(md3_event_t *ev)
     case EV_LINK:
         dac_apply_volume();
         main_refresh();
-        break;
-    case EV_CLOCK:
-        clock_set_seconds((int)ev->value);
-        ESP_LOGI(TAG, "clock set to %02lu:%02lu:%02lu over USB control", (unsigned long)ev->value / 3600,
-                 (unsigned long)ev->value / 60 % 60, (unsigned long)ev->value % 60);
-        break;
-    case EV_SUN:
-        s_sun_rise = (int)(ev->value & 0xFFFF);
-        s_sun_set = (int)(ev->value >> 16);
-        s_sun_known = true;
-        clock_apply_sun();
         break;
     case EV_OFFER:
     case EV_ROM:
@@ -780,11 +404,10 @@ static void process_event(md3_event_t *ev)
 #define ROM_REQUEST_PATH   STORAGE_ROOT "/MD3ROM.TXT"
 #define ROM_REQUEST_MARKER "md3-enter-rom"
 
-// After a request the host sees its answer at once: detach and reconnect, unless the album is
-// using the volume (TEST UNIT READY returns it when the album closes).
+// After a request the host sees its answer at once: detach and reconnect.
 static void return_after_request(void)
 {
-    if ((storage_holds() & STORAGE_HOLD_ALBUM) || storage_unmount() != ESP_OK) {
+    if (storage_unmount() != ESP_OK) {
         return;
     }
     usb_msc_reconnect();
@@ -793,9 +416,9 @@ static void return_after_request(void)
 static void reboot_to_rom(void)
 {
     if (lvgl_port_lock(0)) {
-        stage_clear();
-        show_screen(SCR_REMOTE);
-        stage_show_text("ROM download mode", 0x8A8F94);
+        show_screen(SCR_MAIN);
+        lv_label_set_text(s_rate, "ROM download mode");
+        lv_refr_now(s_disp);
         lvgl_port_unlock();
     }
     vTaskDelay(pdMS_TO_TICKS(300));  // let the panel show the notice and the host see the status stage
@@ -857,49 +480,6 @@ static void check_screenshot_request(void)
         ESP_LOGW(TAG, "screenshot-over-USB failed: %s", esp_err_to_name(result));
         return;
     }
-    return_after_request();
-}
-
-#define TIME_REQUEST_PATH   STORAGE_ROOT "/MD3TIME.TXT"
-#define TIME_REQUEST_MARKER "md3-time="
-
-static void check_time_request(void)
-{
-    uint8_t *request = NULL;
-    size_t request_len = 0;
-    if (storage_read(TIME_REQUEST_PATH, &request, &request_len) != ESP_OK) {
-        return;
-    }
-    const size_t marker_len = strlen(TIME_REQUEST_MARKER);
-    const char *text = request_len >= marker_len ? (const char *)request + marker_len : NULL;
-    bool valid = request_len >= marker_len + 5 && !memcmp(request, TIME_REQUEST_MARKER, marker_len);
-    for (size_t i = 0; valid && i < 5; i++) {
-        if (i == 2) {
-            valid = text[i] == ':';
-        } else {
-            valid = text[i] >= '0' && text[i] <= '9';
-        }
-    }
-    int minute = 0;
-    if (valid) {
-        const int hour = (text[0] - '0') * 10 + text[1] - '0';
-        minute = (text[3] - '0') * 10 + text[4] - '0';
-        valid = hour >= 0 && hour < 24 && minute >= 0 && minute < 60;
-        minute += hour * 60;
-    }
-    free(request);
-    if (!valid) {
-        ESP_LOGW(TAG, "ignoring invalid time request");
-        return;
-    }
-    if (storage_remove(TIME_REQUEST_PATH) != ESP_OK) {
-        return;
-    }
-    if (lvgl_port_lock(0)) {
-        clock_set_seconds(minute * 60);
-        lvgl_port_unlock();
-    }
-    ESP_LOGI(TAG, "clock set to %02d:%02d over Photo Sync", minute / 60, minute % 60);
     return_after_request();
 }
 
@@ -982,7 +562,7 @@ static void return_idle_volume(void)
 
 static void offer_volume(void)
 {
-    // An explicit host request: skip the idle wait, but never take the volume from the album.
+    // An explicit host request: skip the idle wait.
     vTaskDelay(pdMS_TO_TICKS(100));  // let the host see the request's status stage before we drop off
     const esp_err_t result = storage_release_to_host(0);
     if (result == ESP_ERR_NOT_FOUND) {
@@ -999,14 +579,13 @@ static void offer_volume(void)
 
 static void housekeeping(void)
 {
-    // Every local mount (boot, host eject, DAC mode, album open) holds the volume until the
+    // Every local mount (boot, host eject, DAC mode) holds the volume until the
     // pending host requests have been checked; only then may the host take it back.
     if (storage_holds() & STORAGE_HOLD_REQUESTS) {
         const uint32_t generation = storage_mount_generation();
         if (storage_mounted()) {
             check_rom_request();
             check_screenshot_request();
-            check_time_request();
             check_key_request();
         }
         storage_requests_checked(generation);  // a mount made meanwhile keeps its hold
@@ -1022,10 +601,6 @@ static void housekeeping(void)
         }
     }
     settings_tick();
-    if (s_screen == SCR_CLOCK && lvgl_port_lock(0)) {
-        clock_refresh();
-        lvgl_port_unlock();
-    }
     publish_state();
 }
 
@@ -1072,15 +647,10 @@ esp_err_t ui_init(esp_lcd_panel_io_handle_t io, esp_lcd_panel_handle_t panel)
 
     lvgl_port_lock(0);
     build_main();
-    if (!build_stage()) {
-        lvgl_port_unlock();
-        return ESP_ERR_NO_MEM;
-    }
     build_menu();
     build_toast();
-    build_clock();
     apply_rotation();
-    show_screen(SCR_CLOCK);
+    show_screen(SCR_MAIN);
     lvgl_port_unlock();
     apply_brightness();
     publish_state();
@@ -1096,7 +666,7 @@ esp_err_t ui_start(void)
 
 const char *ui_screen_name(void)
 {
-    static const char *names[] = {"main", "album", "remote", "menu", "clock"};
+    static const char *names[] = {"main", "menu"};
     return names[s_screen];
 }
 

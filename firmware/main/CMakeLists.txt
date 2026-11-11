@@ -28,7 +28,6 @@ idf_component_register(
         nvs_flash
         wear_levelling
         espressif__button
-        espressif__esp_jpeg
         espressif__esp_lcd_gc9a01
         espressif__esp_lvgl_port
         espressif__esp_tinyusb
