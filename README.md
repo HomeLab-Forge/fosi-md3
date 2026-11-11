@@ -1,92 +1,95 @@
-# Fosi Audio MD3: what's inside, and an open firmware
+# md3fw: open firmware for the Fosi Audio MD3
 
-The Fosi Audio MD3 is a small USB-C DAC and headphone amplifier with a round 1.28-inch screen.
-The idea is a good one: a DAC with a display you fill with your own pictures. The software
-doesn't live up to it. We took full control of one unit's ESP32 software in five days, then
-returned it. This repository holds everything we learned and the replacement firmware we wrote, so the
-next owner (or Fosi) can start where we stopped.
+Built on the reverse engineering by BenevolentFutures
+([github.com/BenevolentFutures/fosi-md3](https://github.com/BenevolentFutures/fosi-md3)), MIT.
 
-**Status: archived, 2026-10-31.** The unit went back to the store with its factory flash
-restored and verified byte for byte. Nothing here has been tried on a second unit.
+The Fosi Audio MD3 is a small USB-C DAC and headphone amplifier with a round 1.28-inch screen. An
+ESP32-S3 inside runs the screen, the buttons and the ES9039Q2M DAC. md3fw replaces the app on that
+ESP32. It writes only the app partition and keeps the audio path, the photo volume and the
+settings format, so the stock firmware can go back on at any time.
 
-![The open firmware's day-wheel](images/day-wheel.png)
+Version 0.3.1 is maintained and used daily on one MD3 as a DAC for an iPhone.
 
-## The verdict
+![The status screen: Warm preset at 44.1 kHz](images/status-screen.png)
 
-The owner's, after five days of listening from a phone: "it just doesn't work good enough as a
-DAC." What stood in the way, from [`docs/limits.md`](docs/limits.md):
+## What it does
 
-- **One port, two devices.** Audio or Photo Sync, never both. Switching in the menu makes the
-  computer see one device unplug and another arrive.
-- **No working radio (on this unit).** The ESP32-S3 inside has Wi-Fi and Bluetooth, but our firmware heard 0
-  Wi-Fi networks, and its Bluetooth beacon went unheard even by a phone held against the case.
-- **The screen can't follow the music.** Its controller never sees audio. It learns the sample
-  rate and the host volume, nothing more.
-- **Stock firmware rough edges:** new pictures need a power cycle; PNG is accepted but never
-  shown; the overvoltage warning only draws a label; first boot sets volume 100 of 100 with gain
-  High; no public firmware or update tool exists.
+- **Audio as stock:** every sample rate and DSD, through the Savitech USB audio bridge. The
+  volume uses the stock 101-step curve.
+- **One status screen:** the stream ("96 kHz PCM", "DSD128", "no stream"), "High Gain" or "Low
+  Gain", the EQ preset's curve, its name and a note, and the volume as a ring with its value in dB.
+  The screen stays dark until you press Menu and goes dark again 8 s after the last key.
+- **Nine EQ presets** on the DAC's programmable filter: Flat (the built-in filter), Bass+ and
+  Bass- (±6 dB below 1 kHz), Mid+ and Mid- (±5 dB around 2 kHz, 44.1/48 kHz only), Treble+ and
+  Treble- (±6 dB above 5 kHz), Warm (tilts down to -5 dB at 10 kHz) and Bright (up to +5 dB).
+  DSD bypasses the EQ.
+- **Gain:** High or Low. Low is 6 dB of digital attenuation, the same as stock.
+- **Lower power:** no Wi-Fi or Bluetooth, 160 MHz with frequency scaling down to 80 MHz, the
+  screen and its UI stopped while dark.
+- **Photo Sync** (U-Disk mode) works as before, and adds a USB control channel for status,
+  screenshots, logs and hands-free reflashing.
 
-## What we found
+## Buttons
 
-- **Two chips behind one USB-C port**, switched by a mux on ESP32 GPIO48: a Savitech SA9312L
-  USB audio bridge (`262a:1a86`, UAC2 up to 384 kHz and native DSD256, plus a vendor HID
-  channel), and an ESP32-S3R8 that runs the screen, buttons, menus and photo storage
-  (`303a:4002`, a 22.9 MB FAT volume).
-- **The ESP32 runs the DAC.** It drives the ESS ES9039Q2M over I2C at 0x48: volume, eight
-  filters, gain. The Savitech reports the sample rate, DSD and host volume to it over a second
-  I2C bus, where the ESP32 is a slave at 0x6B. Nothing flows back.
-- **Wide open.** Secure boot and flash encryption are off. At every power-up the ESP32's
-  USB-Serial-JTAG appears for about 1.1 s; catch it and the chip stays in ROM download mode, so
-  you can dump and reflash it without opening the case.
-- **The Savitech EEPROM can be read over HID** with a command recovered from another vendor's
-  updater for the same chip family.
+| Button | Screen off | Screen on |
+|--------|------------|-----------|
+| Menu, click | Screen on | Screen off |
+| Menu, hold 0.8 s | Screen on | Switch DAC <-> U-Disk |
+| Vista (front), click | Nothing | Next preset |
+| Vista, hold 0.8 s | Nothing | Switch High <-> Low gain |
+| Vol+ / Vol- | Volume | Volume, shown big |
 
-Details: [`docs/hardware.md`](docs/hardware.md), [`docs/stock-firmware.md`](docs/stock-firmware.md)
-(pin map, DAC init, protocols, settings record, from disassembly),
-[`docs/savitech.md`](docs/savitech.md).
+Holding Vista while plugging in starts no app and keeps the ESP32's USB recovery path.
 
-## The open firmware
+## Install
 
-A from-scratch replacement for the ESP32-S3 app (ESP-IDF 5.5.1, LVGL 9.2) in `firmware/`. It
-writes only the app partition at 0x10000 and keeps the audio path, the photo volume and the
-settings format.
+Build with ESP-IDF 5.5.1 in `firmware/` (`idf.py build`). Flashing and dumping are done from
+Linux; the tools also work on macOS. In short:
 
-- Parity with stock: every sample rate and DSD, rate badge, volume, filters, gain, menus,
-  persistent settings, album, the three games, DAC/U-Disk switching.
-- Beyond stock: a 24-hour day-wheel clock with real sunrise and sunset arcs; a USB control
-  channel that works while the drive is mounted (status, clock, keys, 0.3 s screenshots, log);
-  20-second hands-free reflashing; a drive that comes back by itself after an eject.
-- Not verified: power transitions.
+1. Add a udev rule for USB ids 303a:1001 and 303a:4002 so your user can open them.
+2. Dump the whole flash: `python tools/catch_rom.py --dump`, then replug the MD3. Do it twice.
+3. First flash: `python tools/catch_rom.py --hold`, replug, write `firmware/build/md3fw.bin` to
+   0x10000 with esptool, then reset with `catch_rom.py --port`.
+4. Later updates: the same as step 3. (`tools/md3_deploy.py` does it hands-free from U-Disk
+   mode, but finds the drive on macOS only for now.)
 
-Build, flash, restore, and the control channel: [`docs/open-firmware.md`](docs/open-firmware.md).
-How it went: [`docs/history.md`](docs/history.md).
+The exact commands, the udev rule, the EQ calibration and the way back to stock are in
+[`docs/open-firmware.md`](docs/open-firmware.md).
 
 ## Before you try any of it
 
 - **Dump your own unit first** (all 32 MB, read twice) and keep it. You need it to go back:
   no Fosi firmware, art or documents are included here.
-- **Never write the bootloader (0x0) or the partition table (0x8000), and never burn eFuses.**
-  Leave those alone and the unit can't be bricked, since download mode lives in mask ROM.
+- **Write only the app partition at 0x10000.** Never write the bootloader (0x0) or the partition
+  table (0x8000), and never burn eFuses. Leave those alone and the unit can't be bricked, since
+  download mode lives in mask ROM.
+- **Recovery:** if an image fails to start, catch the boot window with `tools/catch_rom.py` and
+  write the app again, or restore your dump with `tools/md3_factory_restore.py`.
 - **Never send guessed HID output reports to the Savitech.** Unknown vendor commands on these
   bridges can enter an update mode. Only the EEPROM read is documented.
-- Everything here was written and used on macOS.
+- md3fw runs on one unit. Nothing has been tried on a second one.
+
+## Known issues
+
+- With a charger in the MD3's PD pass-through port, an iPhone does not see the MD3 as
+  headphones. The power-state code (`firmware/main/power.c`) mirrors the stock firmware and is
+  unchanged; the cause is under investigation.
+- The battery saving on the phone has not been measured.
+- Host volume, brightness, rotation and UAC 1.0/2.0 have no control. Their saved values still
+  apply; change them with the stock firmware.
 
 ## Layout
 
 | Path | Contents |
 |------|----------|
-| `docs/` | Findings, reverse engineering, limits, history |
 | `firmware/` | The ESP-IDF project (source only) |
-| `tools/` | Python host tools: content, control channel, deploy, restore, boot-window catcher |
-| `tests/host/` | Host-compiled C tests of the firmware's USB, storage and link code |
-| `images/` | Screenshots taken over the control channel |
-
-## Credits
-
-The reconnaissance, the Savitech EEPROM read and most of the firmware were written by Kimi
-K3.1 Pro in OpenCode. The stock-firmware disassembly, the self-reflashing path and the USB
-control channel were written by Claude in Claude Code. The owner supplied the intent and the
-cable replugs.
+| `design/status-screen.html` | Interactive mock-up of the status screen |
+| `docs/open-firmware.md` | md3fw: controls, EQ, control channel, build, flash, restore |
+| `docs/hardware.md`, `docs/stock-firmware.md`, `docs/savitech.md`, `docs/limits.md` | Reverse-engineering reference: chips, pin map, protocols, settings record, limits |
+| `docs/history.md` | How the original reverse engineering went |
+| `tools/` | Python host tools: dump, flash, deploy, restore, control channel, EQ design |
+| `tests/host/` | Host-compiled C tests of the firmware's USB, storage, link and audio code |
+| `images/` | The status screen |
 
 ## License
 

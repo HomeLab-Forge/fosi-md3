@@ -51,7 +51,7 @@ esp_err_t keys_init(void)
     ESP_RETURN_ON_ERROR(add_key(KEY_VOL_UP, PIN_KEY_VOL_UP, 180, true, false), TAG, "vol+");
     ESP_RETURN_ON_ERROR(add_key(KEY_VOL_DOWN, PIN_KEY_VOL_DOWN, 180, true, false), TAG, "vol-");
     ESP_RETURN_ON_ERROR(add_key(KEY_MENU, PIN_KEY_MENU, 180, false, false), TAG, "menu");
-    ESP_RETURN_ON_ERROR(add_key(KEY_VISTA, PIN_KEY_VISTA, 300, false, true), TAG, "vista");
+    ESP_RETURN_ON_ERROR(add_key(KEY_VISTA, PIN_KEY_VISTA, 180, false, false), TAG, "vista");
     ESP_LOGI(TAG, "4 keys ready");
     return ESP_OK;
 }

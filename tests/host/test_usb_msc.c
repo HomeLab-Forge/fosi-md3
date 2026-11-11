@@ -129,11 +129,6 @@ esp_err_t usb_ctl_init(void)
     return ESP_OK;
 }
 
-uint32_t storage_holds(void)
-{
-    return fake_holds;
-}
-
 // Mirrors storage.c: nothing mounted locally, held or recently used, or released to the host.
 esp_err_t storage_release_to_host(int64_t idle_us)
 {
@@ -201,11 +196,11 @@ int main(void)
     assert(last_sense_key == SCSI_SENSE_UNIT_ATTENTION);
     assert(last_sense_code == MSC_ASC_MEDIUM_CHANGED);
 
-    // The album's hold keeps the volume local even when idle.
+    // A hold keeps the volume local even when idle.
     reset_fakes();
     fake_mounted = true;
     fake_idle = true;
-    fake_holds = STORAGE_HOLD_ALBUM;
+    fake_holds = STORAGE_HOLD_REQUESTS;
     assert(!tud_msc_test_unit_ready_cb(0));
     assert(unmount_calls == 0);
     assert(last_sense_key == SCSI_SENSE_NOT_READY);
@@ -225,10 +220,6 @@ int main(void)
     assert(!tud_msc_start_stop_cb(0, 0, false, true));
 
     reset_fakes();
-    fake_holds = STORAGE_HOLD_ALBUM;
-    tud_mount_cb();
-    assert(unmount_calls == 0);
-    fake_holds = 0;
     tud_mount_cb();
     assert(unmount_calls == 1);
     tud_umount_cb();

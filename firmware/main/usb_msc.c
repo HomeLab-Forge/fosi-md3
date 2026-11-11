@@ -154,10 +154,6 @@ bool tud_msc_is_writable_cb(uint8_t lun)
 
 void tud_mount_cb(void)
 {
-    // The album keeps its volume through a re-enumeration; TEST UNIT READY returns it afterwards.
-    if (storage_holds() & STORAGE_HOLD_ALBUM) {
-        return;
-    }
     if (storage_unmount() != ESP_OK) {
         ESP_LOGW(TAG, "could not detach FAT for USB host");
     }

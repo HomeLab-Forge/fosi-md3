@@ -241,9 +241,6 @@ int main(void)
     assert(storage_holds() & STORAGE_HOLD_REQUESTS);
     storage_requests_checked(generation);
     assert(storage_holds() == 0);
-    storage_hold(STORAGE_HOLD_ALBUM, true);
-    assert(storage_release_to_host(2000000) == ESP_ERR_INVALID_STATE);
-    storage_hold(STORAGE_HOLD_ALBUM, false);
     fake_now_us = 0;
     assert(storage_release_to_host(2000000) == ESP_ERR_INVALID_STATE);
     fake_now_us = 10000000;

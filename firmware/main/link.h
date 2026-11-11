@@ -23,6 +23,10 @@ extern link_state_t g_link;
 
 esp_err_t link_init(void);
 
+/** Have the I2C ISR call notify_from_isr after queueing each write, so the consumer can wake at once
+ *  instead of polling. It runs in interrupt context; it returns true if it woke a higher-priority task. */
+void link_set_notify(bool (*notify_from_isr)(void));
+
 /** Fold any received writes into the state; returns true when something changed. */
 bool link_poll(link_state_t *out);
 

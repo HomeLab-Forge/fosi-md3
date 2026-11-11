@@ -1,10 +1,8 @@
 #include "storage.h"
 
-#include <dirent.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <strings.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -20,10 +18,6 @@
 #include "wear_levelling.h"
 
 static const char *TAG = "storage";
-
-const char *const k_storage_folders[STORAGE_FOLDERS] = {
-    "Photo1", "Photo2", "Photo3", "Game1", "Game2", "Game3",
-};
 
 static wl_handle_t s_wl = WL_INVALID_HANDLE;
 static bool s_mounted;
@@ -156,15 +150,6 @@ bool storage_mounted(void)
     return mounted;
 }
 
-void storage_hold(uint32_t reason, bool on)
-{
-    if (storage_lock() != ESP_OK) {
-        return;
-    }
-    s_holds = on ? s_holds | reason : s_holds & ~reason;
-    storage_unlock();
-}
-
 uint32_t storage_mount_generation(void)
 {
     if (storage_lock() != ESP_OK) {
@@ -214,67 +199,6 @@ esp_err_t storage_release_to_host(int64_t idle_us)
     }
     storage_unlock();
     return result;
-}
-
-static bool displayable(const char *name)
-{
-    const char *dot = strrchr(name, '.');
-    if (!dot || name[0] == '.') {
-        return false;
-    }
-    return !strcasecmp(dot, ".gif") || !strcasecmp(dot, ".jpg") || !strcasecmp(dot, ".jpeg");
-}
-
-int storage_list(int folder, char ***names)
-{
-    *names = NULL;
-    if (storage_lock() != ESP_OK || !s_mounted || folder < 0 || folder >= STORAGE_FOLDERS) {
-        if (s_mutex) {
-            storage_unlock();
-        }
-        return 0;
-    }
-    s_local_use_us = esp_timer_get_time();
-    char path[32];
-    snprintf(path, sizeof(path), STORAGE_ROOT "/%s", k_storage_folders[folder]);
-    DIR *dir = opendir(path);
-    if (!dir) {
-        storage_unlock();
-        return 0;
-    }
-    int count = 0, cap = 0;
-    char **list = NULL;
-    struct dirent *entry;
-    while ((entry = readdir(dir)) != NULL) {
-        if (entry->d_type == DT_DIR || !displayable(entry->d_name)) {
-            continue;
-        }
-        if (count == cap) {
-            cap = cap ? cap * 2 : 16;
-            char **grown = realloc(list, cap * sizeof(char *));
-            if (!grown) {
-                break;
-            }
-            list = grown;
-        }
-        char *copy = strdup(entry->d_name);
-        if (!copy) {
-            break;
-        }
-        list[count++] = copy;
-    }
-    closedir(dir);
-    storage_unlock();
-    *names = list;
-    return count;
-}
-
-void storage_free_list(char **names, int count)
-{
-    for (int i = 0; i < count; i++) {
-        free(names[i]);
-    }
-    free(names);
 }
 
 esp_err_t storage_read(const char *path, uint8_t **data, size_t *len)
@@ -363,31 +287,6 @@ esp_err_t storage_remove(const char *path)
     result = unlink(path) == 0 ? ESP_OK : ESP_FAIL;
     storage_unlock();
     return result;
-}
-
-bool storage_name_ok(const char *name)
-{
-    const size_t count = strlen(name);
-    if (count == 0 || count > 64 || name[0] == '.') {
-        return false;
-    }
-    for (size_t i = 0; i < count; i++) {
-        const char c = name[i];
-        if (c == '/' || c == '\\' || c == ':' || c < 0x20) {
-            return false;
-        }
-    }
-    return true;
-}
-
-int storage_folder_index(const char *name)
-{
-    for (int i = 0; i < STORAGE_FOLDERS; i++) {
-        if (!strcmp(name, k_storage_folders[i])) {
-            return i;
-        }
-    }
-    return -1;
 }
 
 esp_err_t storage_usage(uint64_t *total, uint64_t *free_bytes)

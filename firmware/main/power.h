@@ -7,7 +7,8 @@
 
 esp_err_t power_init(void);
 
-/** Sample once (call every ~50 ms). Returns true when the audio power-up should be rerun. */
+/** Sample once (the UI task calls it every 250 ms; stock samples every 50 ms). Returns true when the
+ *  audio power-up should be rerun. */
 bool power_tick(void);
 
 int power_vbus_mv(void);
