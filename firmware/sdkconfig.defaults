@@ -2,7 +2,11 @@
 CONFIG_ESPTOOLPY_FLASHMODE_DIO=y
 CONFIG_ESPTOOLPY_FLASHFREQ_80M=y
 CONFIG_ESPTOOLPY_FLASHSIZE_32MB=y
-CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
+# 160 MHz is plenty for one screen and an I2C link; with PM_ENABLE the CPU drops to 80 MHz when
+# nothing holds a CPU_FREQ_MAX lock (main.c). APB stays at 80 MHz at both speeds on the S3, so I2C,
+# SPI, LEDC and USB timing are unaffected. Automatic light sleep stays off (FREERTOS_USE_TICKLESS_IDLE).
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_160=y
+CONFIG_PM_ENABLE=y
 
 # Keep the factory layout: app at 0x10000, storage at 0x910000, user_dat at 0x1f10000.
 CONFIG_PARTITION_TABLE_SINGLE_APP=n

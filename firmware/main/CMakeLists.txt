@@ -24,6 +24,7 @@ idf_component_register(
         esp_driver_spi
         esp_lcd
         esp_partition
+        esp_pm
         esp_timer
         fatfs
         nvs_flash

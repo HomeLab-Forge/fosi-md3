@@ -47,5 +47,5 @@ esp_err_t settings_load(void);
 /** Mark the record dirty; it is written 2 s after the last change, like the stock firmware. */
 void settings_touch(void);
 
-/** Call periodically (every ~40 ms); performs the deferred write. */
+/** Call periodically (the UI task does, every 250 ms); performs the deferred write. */
 void settings_tick(void);

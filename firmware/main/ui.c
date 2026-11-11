@@ -12,6 +12,7 @@
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_lvgl_port.h"
+#include "esp_pm.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
@@ -40,6 +41,7 @@ static const char *TAG = "ui";
 #define HOLD_REPEAT_US  70000
 #define HOT_MS          1500                  // the big dB value after a volume change
 #define AWAKE_US        (8 * 1000 * 1000)     // no key for this long: screen off
+#define HOUSEKEEPING_MS 250                   // VBUS, deferred saves, drive return, sleep timer, link fallback
 #define GC9A01_SLPIN    0x10
 #define GC9A01_SLPOUT   0x11
 #define GC9A01_DISPOFF  0x28
@@ -56,6 +58,8 @@ static const char *TAG = "ui";
 static QueueHandle_t s_queue;
 static lv_display_t *s_disp;
 static esp_lcd_panel_io_handle_t s_io;
+static esp_pm_lock_handle_t s_cpu_lock;  // full CPU speed while the screen is on
+static volatile bool s_link_signalled;   // an EV_LINK wake-up is already queued
 static int64_t s_last_hold_us;
 
 // Wake and sleep. The screen is dark (backlight 0, panel in sleep, LVGL stopped) unless Menu woke it.
@@ -312,6 +316,9 @@ static void screen_wake(void)
     lv_refr_now(s_disp);
     vTaskDelay(pdMS_TO_TICKS(20));   // let the last DMA flush land before the light comes on
     board_backlight_set(k_brightness_pct[g_settings.brightness % 5]);
+    if (s_cpu_lock) {
+        esp_pm_lock_acquire(s_cpu_lock);
+    }
     s_awake = true;
     s_last_key_us = esp_timer_get_time();
     ESP_LOGI(TAG, "screen on");
@@ -327,6 +334,9 @@ static void screen_sleep(void)
     lv_timer_pause(s_hot_timer);
     set_hot(false);
     lvgl_port_stop();  // no tick, no LVGL timers: nothing redraws until the next wake
+    if (s_cpu_lock) {
+        esp_pm_lock_release(s_cpu_lock);
+    }
     panel_gap();
     panel_cmd(GC9A01_DISPOFF);
     panel_cmd(GC9A01_SLPIN);
@@ -628,6 +638,14 @@ static void offer_volume(void)
     }
 }
 
+static void poll_link(void)
+{
+    if (link_poll(&g_link)) {
+        md3_event_t ev = {.type = EV_LINK};
+        process_event(&ev);
+    }
+}
+
 static void housekeeping(void)
 {
     // Every local mount (boot, host eject, DAC mode) holds the volume until the
@@ -642,10 +660,7 @@ static void housekeeping(void)
         storage_requests_checked(generation);  // a mount made meanwhile keeps its hold
     }
     return_idle_volume();
-    if (link_poll(&g_link)) {
-        md3_event_t ev = {.type = EV_LINK};
-        process_event(&ev);
-    }
+    poll_link();  // fallback; the link's ISR normally wakes the task at once
     if (power_tick()) {
         if (audio_power_cycle() != ESP_OK) {
             ESP_LOGW(TAG, "DAC not ready after power change");
@@ -660,13 +675,36 @@ static void housekeeping(void)
     publish_state();
 }
 
+// Runs in the I2C-slave ISR after each write from the Savitech: queue one EV_LINK wake-up, not one
+// per register, so a burst of writes cannot crowd keys out of the queue.
+static bool link_wake_from_isr(void)
+{
+    if (s_link_signalled || !s_queue) {
+        return false;
+    }
+    s_link_signalled = true;
+    const md3_event_t ev = {.type = EV_LINK};
+    BaseType_t woken = pdFALSE;
+    if (xQueueSendFromISR(s_queue, &ev, &woken) != pdTRUE) {
+        s_link_signalled = false;  // queue full; the next write or housekeeping catches up
+    }
+    return woken == pdTRUE;
+}
+
+// Event-driven: the task sleeps until a key, a USB request or a link write arrives, and otherwise
+// wakes only for housekeeping every HOUSEKEEPING_MS (it used to poll everything every 40 ms).
 static void ui_task(void *arg)
 {
     TickType_t last_housekeeping = xTaskGetTickCount();
     for (;;) {
+        const TickType_t period = pdMS_TO_TICKS(HOUSEKEEPING_MS);
+        const TickType_t elapsed = xTaskGetTickCount() - last_housekeeping;
         md3_event_t ev = {0};
-        if (xQueueReceive(s_queue, &ev, pdMS_TO_TICKS(40)) == pdTRUE) {
-            if (ev.type == EV_OFFER) {
+        if (xQueueReceive(s_queue, &ev, elapsed < period ? period - elapsed : 0) == pdTRUE) {
+            if (ev.type == EV_LINK) {
+                s_link_signalled = false;  // cleared before reading, so a write during the read re-signals
+                poll_link();
+            } else if (ev.type == EV_OFFER) {
                 offer_volume();
             } else if (ev.type == EV_ROM) {
                 reboot_to_rom();
@@ -674,9 +712,8 @@ static void ui_task(void *arg)
                 process_event(&ev);
             }
         }
-        const TickType_t now = xTaskGetTickCount();
-        if (now - last_housekeeping >= pdMS_TO_TICKS(40)) {
-            last_housekeeping = now;
+        if (xTaskGetTickCount() - last_housekeeping >= period) {
+            last_housekeeping = xTaskGetTickCount();
             housekeeping();
         }
     }
@@ -687,6 +724,9 @@ static void ui_task(void *arg)
 esp_err_t ui_init(esp_lcd_panel_io_handle_t io, esp_lcd_panel_handle_t panel)
 {
     s_io = io;
+    if (esp_pm_lock_create(ESP_PM_CPU_FREQ_MAX, 0, "screen", &s_cpu_lock) != ESP_OK) {
+        s_cpu_lock = NULL;  // power management off: nothing to hold
+    }
     s_curve_points = calloc(eq_curve_points(), sizeof(*s_curve_points));
     ESP_RETURN_ON_FALSE(s_curve_points, ESP_ERR_NO_MEM, TAG, "curve points");
     const lvgl_port_cfg_t port_cfg = ESP_LVGL_PORT_INIT_CONFIG();
@@ -720,6 +760,7 @@ esp_err_t ui_start(void)
 {
     s_queue = xQueueCreate(16, sizeof(md3_event_t));
     ESP_RETURN_ON_FALSE(s_queue, ESP_ERR_NO_MEM, TAG, "queue");
+    link_set_notify(link_wake_from_isr);
     return xTaskCreate(ui_task, "ui", 8192, NULL, 5, NULL) == pdPASS ? ESP_OK : ESP_FAIL;
 }
 
