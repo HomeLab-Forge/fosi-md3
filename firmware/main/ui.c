@@ -384,25 +384,26 @@ static void handle_key(md3_key_t key, md3_press_t press)
         }
         break;
     case KEY_MENU:
-    case KEY_VISTA:
-        // Vista mirrors Menu's click; the DAC <-> U-Disk hold stays on Menu alone.
-        if (key == KEY_VISTA && press != PRESS_CLICK) {
-            break;
-        }
         if (!s_awake) {
-            screen_wake();  // the first press only wakes, whatever its length
+            screen_wake();  // from dark, any press only wakes
         } else if (press == PRESS_CLICK) {
-            g_settings.eq_preset = (g_settings.eq_preset + 1) % eq_preset_count();
-            settings_touch();
-            s_pending_eq = true;
-            set_hot(false);
-            refresh_eq();
+            screen_sleep();
         } else if (press == PRESS_LONG) {
             // DAC (Savitech on the port) <-> U-Disk (Photo Sync); the old menu's USB mode item.
             g_settings.udisk_mode ^= 1;
             settings_touch();
             s_pending_power_cycle = true;
             show_hot(g_settings.udisk_mode ? "U-Disk" : "DAC");
+        }
+        break;
+    case KEY_VISTA:
+        // Next preset, only while the screen is on.
+        if (s_awake && press == PRESS_CLICK) {
+            g_settings.eq_preset = (g_settings.eq_preset + 1) % eq_preset_count();
+            settings_touch();
+            s_pending_eq = true;
+            set_hot(false);
+            refresh_eq();
         }
         break;
     }

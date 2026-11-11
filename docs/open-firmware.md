@@ -69,10 +69,10 @@ Wi-Fi and Bluetooth from the build" still has `net.c` and `radio_ble.c`.
 
 | Key | Screen dark | Screen on |
 |-----|-------------|-----------|
-| Menu (GPIO8), click | Wakes the screen; nothing else | Next EQ preset |
+| Menu (GPIO8), click | Wakes the screen | Turns the screen off |
 | Menu, hold 0.8 s | Wakes the screen | Switches DAC <-> U-Disk (Photo Sync); shows "DAC" or "U-Disk" for 1.5 s |
 | Vol+ / Vol- (GPIO0 / GPIO9), click or hold | Changes the volume; the screen stays dark | Changes the volume and shows the level big for 1.5 s |
-| Vista (GPIO10), click | Wakes the screen | Next EQ preset (the same as a Menu click) |
+| Vista (GPIO10), click | Nothing | Next EQ preset |
 
 Eight seconds after the last key the screen goes dark: backlight off, GC9A01 display off and
 sleep in (0x28, 0x10), LVGL stopped. Waking sends sleep out (0x11), waits 120 ms, display on
@@ -178,7 +178,7 @@ calibration goes back and forth:
 2. In Photo Sync mode, set the default: `md3ctl.py eq-scale 22 22 0`.
 3. Press Menu to wake the screen, hold Menu to switch to DAC, and play something with steady
    treble (pink noise, or cymbals and voices).
-4. Compare **Flat** with **Bass+** (one Menu press apart): with the right scale the treble and
+4. Compare **Flat** with **Bass+** (one Vista press apart): with the right scale the treble and
    upper mids are equally loud, and only the bass is lifted. Or compare Flat with **Bass-**
    (no make-up at all): everything above about 2 kHz should match exactly.
 5. Judge the difference and adjust (hold Menu to go back to U-Disk, then `eq-scale` again):
