@@ -6,8 +6,7 @@
      A live screen at the top you can drive, then a strip of fixed states, then the spec. */
   :root {
     --page: #eef0f2; --ink: #1d232a; --muted: #5e6a75; --rule: #d3d8dd; --card: #ffffff;
-    --glass: #000000; --bezel: #23272c; --curve: #7fd4ff; --curve-dim: #2b4a5c; --ring: #f2b94b; --ring-track: #24282d;
-    --label: #e7edf2; --sub: #8a98a5; --dsd: #c79bff;
+    --bezel: #23272c;
     --ui: "IBM Plex Sans Condensed", "Arial Narrow", system-ui, sans-serif;
     --mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
   }
@@ -28,7 +27,6 @@
   button { font: 500 .95rem var(--ui); padding: 8px 14px; border-radius: 8px; border: 1px solid var(--rule); background: var(--card); color: var(--ink); cursor: pointer; }
   button:hover { border-color: var(--muted); }
   button:focus-visible { outline: 2px solid #3b8fd9; outline-offset: 2px; }
-  .hint { color: var(--muted); font-size: .9rem; margin: 0; }
   .state { font: 13px/1.4 var(--mono); color: var(--muted); }
   .strip { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 18px; }
   figure { margin: 0; display: grid; gap: 8px; justify-items: center; background: var(--card); border: 1px solid var(--rule); border-radius: 12px; padding: 14px 10px; }
@@ -46,7 +44,7 @@
 <main>
   <header>
     <h1>MD3 Status Screen</h1>
-    <p class="lede">The one screen the open firmware shows. It's dark until you press the menu button, then the active preset's curve sits in the middle, the stream on top, and volume around the edge. Drawn at the panel's real 240 × 240.</p>
+    <p class="lede">Draft for firmware 0.3.1. The screen is dark until you press Menu. Then the active EQ preset's curve sits in the middle, the stream and gain are at the top, and the volume runs around the edge. Drawn at the panel's real 240 × 240, with the firmware's own positions and curves.</p>
   </header>
 
   <section class="hero" aria-label="Live mock-up">
@@ -54,178 +52,134 @@
     <div class="controls">
       <h2>Try it</h2>
       <div class="btns">
-        <button id="menu" type="button">Menu (wake / next preset)</button>
+        <button id="menu" type="button">Menu: click</button>
+        <button id="menuH" type="button">Menu: hold</button>
+        <button id="vista" type="button">Front: click</button>
+        <button id="vistaH" type="button">Front: hold</button>
+      </div>
+      <div class="btns">
         <button id="vdn" type="button">Vol −</button>
         <button id="vup" type="button">Vol +</button>
       </div>
       <div class="btns">
         <button id="r44" type="button">44.1 kHz</button>
         <button id="r96" type="button">96 kHz</button>
-        <button id="r384" type="button">384 kHz</button>
         <button id="dsd" type="button">DSD128</button>
         <button id="stop" type="button">No stream</button>
       </div>
-      <p class="hint">The first Menu press wakes the screen, and each one after that moves to the next preset. With no press for 8 s, the screen goes dark.</p>
       <div class="state" id="state"></div>
     </div>
   </section>
 
   <section class="strip" aria-label="States">
-    <figure><div class="mini"><canvas data-state="f0" width="240" height="240"></canvas></div><figcaption><b>Built-in filter</b>The impulse, which is what really differs between the eight presets.</figcaption></figure>
-    <figure><div class="mini"><canvas data-state="f1" width="240" height="240"></canvas></div><figcaption><b>Linear phase</b>A symmetric ring, with pre-echo before the peak.</figcaption></figure>
-    <figure><div class="mini"><canvas data-state="warm" width="240" height="240"></canvas></div><figcaption><b>Custom: Warm</b>The DAC's programmable FIR, drawn as a frequency curve.</figcaption></figure>
-    <figure><div class="mini"><canvas data-state="dsd" width="240" height="240"></canvas></div><figcaption><b>DSD</b>The filter isn't in the path, so its curve is greyed out.</figcaption></figure>
-    <figure><div class="mini"><canvas data-state="vol" width="240" height="240"></canvas></div><figcaption><b>Volume change</b>The ring brightens, and the level shows big for 1.5 s.</figcaption></figure>
-    <figure><div class="mini"><canvas data-state="off" width="240" height="240"></canvas></div><figcaption><b>Inactive</b>Backlight off, panel asleep, LVGL paused.</figcaption></figure>
+    <figure><div class="mini"><canvas data-state="flat" width="240" height="240"></canvas></div><figcaption><b>Flat, High Gain</b>The built-in filter: a straight line.</figcaption></figure>
+    <figure><div class="mini"><canvas data-state="bass" width="240" height="240"></canvas></div><figcaption><b>Bass+, Low Gain</b>The gain line under the stream, centred.</figcaption></figure>
+    <figure><div class="mini"><canvas data-state="gain" width="240" height="240"></canvas></div><figcaption><b>Front button held</b>The new gain shows big for 1.5 s.</figcaption></figure>
+    <figure><div class="mini"><canvas data-state="dsd" width="240" height="240"></canvas></div><figcaption><b>DSD</b>The EQ isn't in the path, so the curve is greyed out.</figcaption></figure>
+    <figure><div class="mini"><canvas data-state="vol" width="240" height="240"></canvas></div><figcaption><b>Volume change</b>The level shows big for 1.5 s.</figcaption></figure>
+    <figure><div class="mini"><canvas data-state="off" width="240" height="240"></canvas></div><figcaption><b>Off</b>Backlight off, panel asleep, LVGL stopped.</figcaption></figure>
   </section>
 
   <section class="spec">
+    <h2>Buttons</h2>
+    <div class="wrap"><table>
+      <tr><th></th><th>Screen off</th><th>Screen on</th></tr>
+      <tr><th>Menu, click</th><td>Turns it on</td><td>Turns it off</td></tr>
+      <tr><th>Menu, hold 0.8 s</th><td>Turns it on</td><td>DAC ↔ U-Disk</td></tr>
+      <tr><th>Front, click</th><td>Nothing</td><td>Next EQ preset</td></tr>
+      <tr><th>Front, hold 0.8 s</th><td>Nothing</td><td>High Gain ↔ Low Gain</td></tr>
+      <tr><th>Volume ±</th><td>Changes the volume, screen stays off</td><td>Changes the volume, shows it big</td></tr>
+    </table></div>
     <h2>What's on it</h2>
     <div class="wrap"><table>
-      <tr><th>Centre</th><td>The preset's curve, 168 px wide. The 8 built-in filters show their <b>impulse response</b>: their frequency responses are nearly identical below 20 kHz, and what actually tells them apart is pre-ringing, post-ringing and the timing of the peak. Custom presets (Warm, Bright) show their <b>frequency response</b> from 1 kHz to 20 kHz on a log axis, since their whole point is a tilt.</td></tr>
-      <tr><th>Under the curve</th><td>The preset's name and a short note: "Minimum phase · fast", "Linear · apodizing", "Warm · −2 dB at 10 kHz".</td></tr>
-      <tr><th>Top</th><td>The stream: rate and format ("96 kHz PCM", "DSD128"), from the Savitech link. Bit depth isn't shown, because the link doesn't carry it.</td></tr>
-      <tr><th>Edge</th><td>Volume as an arc from 7 to 5 o'clock, with the dB value at the bottom. While it's changing, the arc brightens and the number shows big for 1.5 s.</td></tr>
-      <tr><th>Corner tag</th><td>Gain (Low/High), at 2 o'clock, in a small size.</td></tr>
-      <tr><th>Wake and sleep</th><td>The screen is dark until you press Menu. Each press after that moves to the next preset, and the curve morphs over 250 ms. The volume keys don't wake it. After 8 s with no press: backlight off, GC9A01 sleep-in, and LVGL stopped.</td></tr>
-      <tr><th>Drawing cost</th><td>One full redraw per press, plus 250 ms of morph frames. Then nothing until the next event, so nothing animates while you just listen.</td></tr>
+      <tr><th>Top</th><td>The stream ("44.1 kHz PCM", "DSD128", "no stream"), and under it, centred and smaller, "High Gain" or "Low Gain".</td></tr>
+      <tr><th>Centre</th><td>The preset's frequency response, 200 Hz to 20 kHz on a log axis, ±5 dB. These are the firmware's own curves for 44.1/48 kHz.</td></tr>
+      <tr><th>Under the curve</th><td>The preset's name and a short note ("+3.5 dB below 1 kHz").</td></tr>
+      <tr><th>Edge</th><td>Volume as an amber arc from 7 to 5 o'clock, with the dB value at the bottom.</td></tr>
+      <tr><th>Sleep</th><td>Menu turns it off, or 8 s without a press does.</td></tr>
     </table></div>
-    <p class="note">The curves here are illustrative shapes, not ESS's coefficients. The firmware will draw the real ones: impulse responses traced from the datasheet's plots (ES9039Q2M v0.2.3, Digital Filters section) for F1–F8, and the computed response of our own coefficients for the custom presets. Preset order and names follow FILTER_SHAPE 0–7.</p>
+    <p class="note">Gain is digital: Low is 6 dB of attenuation in the DAC, the same as the stock firmware.</p>
   </section>
 </main>
 <script>
 (() => {
-  const PRESETS = [
-    { name: "Minimum phase", note: "F1 · default · fast", kind: "imp", pre: 0.0, ring: 0.62, decay: 7, t0: 0.30 },
-    { name: "Linear · apodizing", note: "F2 · rolls off before 20k", kind: "imp", pre: 1, ring: 0.45, decay: 6, t0: 0.5, sym: true },
-    { name: "Linear · fast", note: "F3 · Sabre legacy", kind: "imp", pre: 1, ring: 0.75, decay: 4.5, t0: 0.5, sym: true },
-    { name: "Linear · low ripple", note: "F4 · fast", kind: "imp", pre: 1, ring: 0.68, decay: 5, t0: 0.5, sym: true },
-    { name: "Linear · slow", note: "F5 · short, symmetric", kind: "imp", pre: 1, ring: 0.3, decay: 11, t0: 0.5, sym: true },
-    { name: "Minimum phase · fast", note: "F6 · low latency", kind: "imp", pre: 0, ring: 0.72, decay: 6, t0: 0.26 },
-    { name: "Minimum phase · slow", note: "F7 · lowest latency", kind: "imp", pre: 0, ring: 0.35, decay: 12, t0: 0.22 },
-    { name: "Min phase · low disp.", note: "F8 · slight pre-ring", kind: "imp", pre: 0.18, ring: 0.5, decay: 8, t0: 0.32 },
-    { name: "Warm", note: "custom · −2 dB at 10 kHz", kind: "eq", tilt: -2.2 },
-    { name: "Bright", note: "custom · +1.5 dB presence", kind: "eq", tilt: 1.5, presence: true },
-  ];
+  // From firmware/main/eq_coeffs.h: name, note, curve for the 44.1/48 kHz group (0.01 dB, 48 log points 200 Hz-20 kHz).
+  const NAMES = ["Flat", "Bass+", "Bass-", "Mid+", "Mid-", "Treble+", "Treble-", "Warm", "Bright"];
+  const NOTES = ["built-in filter F1", "+3.5 dB below 1 kHz", "-3.5 dB below 1 kHz", "+3 dB around 2 kHz", "-3 dB around 2 kHz", "+3.5 dB above 5 kHz", "-3.5 dB above 5 kHz", "-2 dB at 10 kHz", "+1.5 dB from 3 kHz"];
+  const CURVES = [[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[337,335,332,329,325,320,314,307,298,289,277,264,250,233,216,197,178,159,142,127,115,104,93,81,67,52,41,36,36,32,21,15,18,15,7,12,6,6,5,6,0,5,4,1,-1,-1,1,5],[-345,-342,-339,-335,-331,-326,-320,-312,-304,-294,-283,-270,-256,-240,-224,-206,-188,-170,-153,-137,-123,-110,-97,-85,-73,-62,-52,-46,-41,-37,-30,-25,-24,-22,-17,-17,-15,-13,-13,-12,-10,-11,-10,-9,-8,-8,-8,-12],[2,4,6,9,12,16,21,27,34,43,53,65,79,96,115,136,160,186,212,239,263,282,295,300,297,287,274,261,245,221,191,165,145,120,93,79,58,46,33,25,14,13,8,2,-1,-2,-2,1],[-13,-15,-17,-20,-23,-27,-32,-38,-45,-53,-63,-75,-89,-105,-124,-146,-170,-196,-224,-251,-276,-296,-308,-312,-307,-297,-285,-273,-257,-232,-203,-177,-156,-131,-105,-90,-70,-57,-45,-36,-26,-23,-18,-14,-11,-10,-9,-13],[1,1,1,1,1,1,2,2,3,3,4,5,6,7,8,10,12,15,18,22,26,31,37,44,52,62,73,85,98,112,127,144,161,177,195,211,227,243,256,270,281,291,300,308,315,321,326,328],[-1,-1,-1,-1,-1,-2,-2,-2,-3,-3,-4,-5,-6,-7,-9,-10,-12,-15,-18,-22,-26,-31,-37,-44,-53,-62,-72,-84,-98,-112,-127,-144,-160,-178,-195,-211,-228,-242,-257,-269,-281,-291,-300,-308,-315,-320,-325,-331],[0,0,0,0,0,0,0,0,0,0,-1,-1,-2,-3,-5,-7,-10,-14,-19,-25,-32,-40,-49,-57,-66,-73,-81,-90,-99,-108,-116,-123,-133,-142,-149,-158,-167,-175,-184,-192,-200,-210,-218,-226,-234,-243,-251,-262],[-2,-2,-2,-2,-2,-2,-1,-1,-1,0,0,1,2,3,4,6,8,10,12,15,18,22,26,31,37,43,49,56,63,70,78,85,92,99,105,111,115,120,124,128,131,133,136,138,139,141,142,141]];
+  // firmware/main/ui.c
   const COL = { curve: "#7fd4ff", dim: "#2b4a5c", ring: "#f2b94b", track: "#24282d", label: "#e7edf2", sub: "#8a98a5", dsd: "#c79bff", grid: "#15212a" };
+  const L = 36, R = 204, MID = 112, PXDB = 8, MAXDB = 5;
+  const db = v => (v === 0xFF ? "mute" : (v ? "-" : "") + (v / 2).toFixed(1) + " dB");
+  // Device volume 0..100 -> attenuation steps (rough stand-in for the stock table), gain Low adds 12.
+  const att = s => { let a = Math.round((100 - s.vol) * 1.2); if (!s.gain) a = Math.min(255, a + 12); return a; };
 
-  function impulse(p, x) { // x in 0..1 across the plot
-    const t = x - p.t0;
-    const w = 26;
-    if (p.sym) {
-      const s = t === 0 ? 1 : Math.sin(w * t) / (w * t);
-      return s * Math.exp(-Math.abs(t) * p.decay * (1 - p.ring));
-    }
-    if (t < 0) { // minimum phase: almost nothing before the peak (low dispersion adds a little)
-      const s = t === 0 ? 1 : Math.sin(w * t) / (w * t);
-      return p.pre * s * Math.exp(t * 30);
-    }
-    const s = t === 0 ? 1 : Math.sin(w * t * 0.92 + 0.0001) / (w * t * 0.92 + 0.0001);
-    return s * Math.exp(-t * p.decay * (1 - p.ring) * 1.4);
+  function text(g, str, font, color, top) { // LVGL label: top edge at `top`, centred
+    g.font = font; g.fillStyle = color; g.textAlign = "center"; g.textBaseline = "top"; g.fillText(str, 120, top);
   }
-  function eq(p, x) { // x 0..1 = 1k..20k log; returns dB
-    const f = Math.pow(10, 3 + x * Math.log10(20)); // 1k..20k
-    let db = p.tilt * Math.log10(f / 1000) / Math.log10(20) * 1.0;
-    if (p.presence) db = p.tilt * Math.exp(-Math.pow(Math.log2(f / 4000), 2) / 1.2);
-    db += -0.6 * Math.pow(Math.max(0, x - 0.93) / 0.07, 2); // the lowpass edge
-    return db;
-  }
-  function curvePoints(p) {
-    const pts = [];
-    for (let i = 0; i <= 120; i++) {
-      const x = i / 120;
-      pts.push(p.kind === "imp" ? impulse(p, x) : eq(p, x) / 4);
-    }
-    return pts;
-  }
-
   function draw(cv, s) {
     const g = cv.getContext("2d");
-    g.setTransform(1, 0, 0, 1, 0, 0);
     g.fillStyle = "#000"; g.fillRect(0, 0, 240, 240);
     if (s.off) return;
-    const cx = 120, cy = 120;
-    // volume ring, 7 o'clock to 5 o'clock
     const a0 = Math.PI * 0.75, a1 = Math.PI * 2.25;
     g.lineCap = "round"; g.lineWidth = 6;
-    g.strokeStyle = COL.track; g.beginPath(); g.arc(cx, cy, 111, a0, a1); g.stroke();
-    g.strokeStyle = COL.ring; g.globalAlpha = s.volHot ? 1 : 0.75;
-    g.beginPath(); g.arc(cx, cy, 111, a0, a0 + (a1 - a0) * s.vol / 100); g.stroke(); g.globalAlpha = 1;
-    // stream, top
-    g.textAlign = "center"; g.textBaseline = "alphabetic";
-    g.font = "500 15px 'IBM Plex Sans Condensed', 'Arial Narrow', sans-serif";
-    g.fillStyle = s.dsd ? COL.dsd : (s.rate ? COL.label : COL.sub);
-    g.fillText(s.dsd ? "DSD128" : (s.rate ? s.rate + " kHz PCM" : "no stream"), cx, 50);
-    // gain tag
-    g.font = "500 10px 'IBM Plex Mono', monospace"; g.fillStyle = COL.sub;
-    g.fillText(s.gain ? "HI" : "LO", 181, 64);
-    // curve
-    const p = s.preset, pts = s.pts || curvePoints(p);
-    const L = 36, R = 204, mid = 112, amp = 34;
-    g.strokeStyle = COL.grid; g.lineWidth = 1; g.beginPath(); g.moveTo(L, mid); g.lineTo(R, mid); g.stroke();
-    const live = !s.dsd;
-    g.strokeStyle = live ? COL.curve : COL.dim; g.lineWidth = 2.4; g.lineJoin = "round";
-    if (live) { g.shadowColor = "rgba(127,212,255,.55)"; g.shadowBlur = 8; }
+    g.strokeStyle = COL.track; g.beginPath(); g.arc(120, 120, 111, a0, a1); g.stroke();
+    g.strokeStyle = COL.ring; g.beginPath(); g.arc(120, 120, 111, a0, a0 + (a1 - a0) * s.vol / 100); g.stroke();
+
+    text(g, s.dsd ? "DSD128" : (s.rate ? s.rate + " kHz PCM" : "no stream"), "500 16px 'IBM Plex Sans Condensed', sans-serif", s.dsd ? COL.dsd : (s.rate ? COL.label : COL.sub), 34);
+    text(g, s.gain ? "High Gain" : "Low Gain", "400 14px 'IBM Plex Sans Condensed', sans-serif", COL.sub, 53);
+
+    g.strokeStyle = COL.grid; g.lineWidth = 1; g.beginPath(); g.moveTo(L, MID); g.lineTo(R, MID); g.stroke();
+    const c = CURVES[s.idx], live = !s.dsd;
+    g.strokeStyle = live ? COL.curve : COL.dim; g.lineWidth = 2; g.lineJoin = "round";
     g.beginPath();
-    pts.forEach((v, i) => { const x = L + (R - L) * i / (pts.length - 1), y = mid - v * amp * (p.kind === "imp" ? 1.25 : 1); i ? g.lineTo(x, y) : g.moveTo(x, y); });
-    g.stroke(); g.shadowBlur = 0;
-    // name + note
-    if (s.volHot) {
-      g.font = "600 30px 'IBM Plex Sans Condensed', sans-serif"; g.fillStyle = COL.ring;
-      g.fillText(((s.vol - 100) / 2).toFixed(1) + " dB", cx, 182);
+    c.forEach((v, i) => { const cl = Math.max(-MAXDB * 100, Math.min(MAXDB * 100, v)); const x = L + (R - L) * i / (c.length - 1), y = MID - cl * PXDB / 100; i ? g.lineTo(x, y) : g.moveTo(x, y); });
+    g.stroke();
+
+    if (s.hot) {
+      text(g, s.hot, "600 28px 'IBM Plex Sans Condensed', sans-serif", COL.ring, 160);
     } else {
-      g.font = "600 17px 'IBM Plex Sans Condensed', sans-serif"; g.fillStyle = live ? COL.label : COL.sub;
-      g.fillText(p.name, cx, 168);
-      g.font = "400 12px 'IBM Plex Sans Condensed', sans-serif"; g.fillStyle = COL.sub;
-      g.fillText(s.dsd ? "filter not used on DSD" : p.note, cx, 186);
-      g.font = "500 12px 'IBM Plex Mono', monospace"; g.fillStyle = COL.ring;
-      g.fillText(((s.vol - 100) / 2).toFixed(1) + " dB", cx, 214);
+      text(g, NAMES[s.idx], "600 16px 'IBM Plex Sans Condensed', sans-serif", live ? COL.label : COL.sub, 154);
+      text(g, s.dsd ? "EQ not used on DSD" : NOTES[s.idx], "400 14px 'IBM Plex Sans Condensed', sans-serif", COL.sub, 174);
+      text(g, db(att(s)), "500 14px 'IBM Plex Mono', monospace", COL.ring, 200);
     }
   }
 
-  // fixed states
+  const base = { idx: 0, vol: 62, rate: "44.1", dsd: false, gain: true };
   const fixed = {
-    f0: { preset: PRESETS[0], vol: 62, rate: "96" },
-    f1: { preset: PRESETS[1], vol: 62, rate: "44.1" },
-    warm: { preset: PRESETS[8], vol: 62, rate: "48" },
-    dsd: { preset: PRESETS[0], vol: 62, dsd: true },
-    vol: { preset: PRESETS[0], vol: 74, rate: "96", volHot: true },
+    flat: { ...base },
+    bass: { ...base, idx: 1, gain: false },
+    gain: { ...base, idx: 7, gain: false, hot: "Low Gain" },
+    dsd: { ...base, idx: 1, dsd: true, rate: null },
+    vol: { ...base, idx: 5, vol: 74, hot: db(Math.round(26 * 1.2)) },
     off: { off: true },
   };
   const paint = () => document.querySelectorAll("canvas[data-state]").forEach(c => draw(c, fixed[c.dataset.state]));
 
-  // live
   const cv = document.getElementById("live"), stateEl = document.getElementById("state");
-  const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
-  const s = { off: false, idx: 0, preset: PRESETS[0], vol: 62, rate: "96", dsd: false, gain: false, volHot: false };
+  const s = { ...base, off: false, hot: null, udisk: false };
   let sleepT, hotT;
-  const status = () => { stateEl.textContent = s.off ? "screen: off (backlight 0, panel asleep)" : `screen: on · preset ${s.idx + 1}/${PRESETS.length} · ${s.dsd ? "DSD128" : (s.rate ? s.rate + " kHz" : "no stream")} · ${((s.vol - 100) / 2).toFixed(1)} dB`; };
-  const arm = () => { clearTimeout(sleepT); sleepT = setTimeout(() => { s.off = true; draw(cv, s); status(); }, 8000); };
-  function morph(from, to) {
-    const a = curvePoints(from), b = curvePoints(to), t0 = performance.now(), D = reduce ? 0 : 250;
-    const step = now => {
-      const k = D ? Math.min(1, (now - t0) / D) : 1, e = k * k * (3 - 2 * k);
-      s.pts = a.map((v, i) => v + (b[i] - v) * e); s.preset = to; draw(cv, s);
-      if (k < 1) requestAnimationFrame(step); else { s.pts = null; draw(cv, s); }
-    };
-    requestAnimationFrame(step);
-  }
-  document.getElementById("menu").onclick = () => {
-    if (s.off) { s.off = false; draw(cv, s); }
-    else { const prev = s.preset; s.idx = (s.idx + 1) % PRESETS.length; morph(prev, PRESETS[s.idx]); }
-    arm(); status();
-  };
-  const vol = d => { s.vol = Math.max(0, Math.min(100, s.vol + d)); if (s.off) { status(); return; } s.volHot = true; draw(cv, s); clearTimeout(hotT); hotT = setTimeout(() => { s.volHot = false; draw(cv, s); }, 1500); arm(); status(); };
-  document.getElementById("vup").onclick = () => vol(4);
-  document.getElementById("vdn").onclick = () => vol(-4);
-  const setRate = (r, d) => { s.rate = r; s.dsd = d; if (!s.off) draw(cv, s); status(); };
-  document.getElementById("r44").onclick = () => setRate("44.1", false);
-  document.getElementById("r96").onclick = () => setRate("96", false);
-  document.getElementById("r384").onclick = () => setRate("384", false);
-  document.getElementById("dsd").onclick = () => setRate(null, true);
-  document.getElementById("stop").onclick = () => setRate(null, false);
+  const status = () => { stateEl.textContent = `${s.udisk ? "U-Disk" : "DAC"} · screen ${s.off ? "off" : "on"} · ${NAMES[s.idx]} · ${s.gain ? "High" : "Low"} Gain · ${db(att(s))}`; };
+  const render = () => { draw(cv, s); status(); };
+  const arm = () => { clearTimeout(sleepT); sleepT = setTimeout(() => { s.off = true; render(); }, 8000); };
+  const hot = t => { s.hot = t; clearTimeout(hotT); hotT = setTimeout(() => { s.hot = null; render(); }, 1500); };
+  const wake = () => { s.off = false; s.hot = null; arm(); };
+  const on = (id, f) => { document.getElementById(id).onclick = () => { f(); render(); }; };
 
-  const start = () => { paint(); draw(cv, s); arm(); status(); };
+  on("menu", () => { if (s.off) wake(); else { s.off = true; clearTimeout(sleepT); } });
+  on("menuH", () => { if (s.off) wake(); else { s.udisk = !s.udisk; hot(s.udisk ? "U-Disk" : "DAC"); arm(); } });
+  on("vista", () => { if (!s.off) { s.idx = (s.idx + 1) % NAMES.length; s.hot = null; arm(); } });
+  on("vistaH", () => { if (!s.off) { s.gain = !s.gain; hot(s.gain ? "High Gain" : "Low Gain"); arm(); } });
+  const vol = d => { s.vol = Math.max(0, Math.min(100, s.vol + d)); if (!s.off) { hot(db(att(s))); arm(); } };
+  on("vup", () => vol(2));
+  on("vdn", () => vol(-2));
+  const rate = (r, d) => { s.rate = r; s.dsd = d; };
+  on("r44", () => rate("44.1", false));
+  on("r96", () => rate("96", false));
+  on("dsd", () => rate(null, true));
+  on("stop", () => rate(null, false));
+
+  const start = () => { paint(); render(); arm(); };
   (document.fonts && document.fonts.ready ? document.fonts.ready : Promise.resolve()).then(start);
 })();
 </script>
