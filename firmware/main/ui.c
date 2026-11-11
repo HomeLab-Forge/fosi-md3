@@ -191,7 +191,7 @@ static void refresh_volume(void)
     lv_arc_set_value(s_arc, g_settings.volume);
     lv_label_set_text(s_db, buf);
     lv_label_set_text(s_big, buf);
-    lv_label_set_text(s_gain, g_settings.gain_high ? "HI" : "LO");
+    lv_label_set_text(s_gain, g_settings.gain_high ? "High Gain" : "Low Gain");
 }
 
 static void refresh_all(void)
@@ -250,10 +250,7 @@ static void build_screen(void)
     lv_obj_set_style_arc_color(s_arc, COLOR_RING, LV_PART_INDICATOR);
 
     s_stream = add_label(&lv_font_montserrat_16, COLOR_LABEL, 34);
-    s_gain = lv_label_create(s_scr);
-    lv_obj_set_style_text_font(s_gain, &lv_font_montserrat_14, 0);
-    lv_obj_set_style_text_color(s_gain, COLOR_SUB, 0);
-    lv_obj_align(s_gain, LV_ALIGN_CENTER, 61, -62);  // 2 o'clock
+    s_gain = add_label(&lv_font_montserrat_14, COLOR_SUB, 53);  // under the stream line
 
     s_grid_points[0] = (lv_point_precise_t){CURVE_LEFT, CURVE_MID};
     s_grid_points[1] = (lv_point_precise_t){CURVE_RIGHT, CURVE_MID};
@@ -397,13 +394,22 @@ static void handle_key(md3_key_t key, md3_press_t press)
         }
         break;
     case KEY_VISTA:
-        // Next preset, only while the screen is on.
-        if (s_awake && press == PRESS_CLICK) {
+        // Only while the screen is on: a click picks the next preset, a hold switches the gain.
+        if (!s_awake) {
+            break;
+        }
+        if (press == PRESS_CLICK) {
             g_settings.eq_preset = (g_settings.eq_preset + 1) % eq_preset_count();
             settings_touch();
             s_pending_eq = true;
             set_hot(false);
             refresh_eq();
+        } else if (press == PRESS_LONG) {
+            g_settings.gain_high ^= 1;
+            settings_touch();
+            dac_apply_volume();
+            refresh_volume();
+            show_hot(g_settings.gain_high ? "High Gain" : "Low Gain");
         }
         break;
     }

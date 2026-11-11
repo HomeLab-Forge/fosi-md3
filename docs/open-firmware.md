@@ -73,6 +73,7 @@ Wi-Fi and Bluetooth from the build" still has `net.c` and `radio_ble.c`.
 | Menu, hold 0.8 s | Wakes the screen | Switches DAC <-> U-Disk (Photo Sync); shows "DAC" or "U-Disk" for 1.5 s |
 | Vol+ / Vol- (GPIO0 / GPIO9), click or hold | Changes the volume; the screen stays dark | Changes the volume and shows the level big for 1.5 s |
 | Vista (GPIO10), click | Nothing | Next EQ preset |
+| Vista, hold 0.8 s | Nothing | Switches the gain High <-> Low (Low is 6 dB of digital attenuation); shows it for 1.5 s |
 
 Eight seconds after the last key the screen goes dark: backlight off, GC9A01 display off and
 sleep in (0x28, 0x10), LVGL stopped. Waking sends sleep out (0x11), waits 120 ms, display on
@@ -82,7 +83,7 @@ still starts no application and keeps the ESP32's USB recovery path, as before.
 Menu is GPIO8 in the stock firmware's pin map ([`stock-firmware.md`](stock-firmware.md)), which
 calls it "Menu/enter"; which physical button that is was not rechecked for 0.3.0.
 
-Gain, host volume, brightness, rotation and UAC 1.0/2.0 had menu items in 0.2.4 and have no
+Host volume, brightness, rotation and UAC 1.0/2.0 had menu items in 0.2.4 and have no
 control in 0.3.0. Their saved values still apply, so set them with the stock firmware or 0.2.4 if
 they need to change. The volume is the same 101-step stock curve.
 
@@ -102,8 +103,8 @@ Drawn as in [`design/status-screen.html`](../design/status-screen.html), on blac
   coefficients for the stream's rate; on DSD the curve greys out and the note says "EQ not used
   on DSD".
 - **Edge:** the device volume as an amber arc from 7 to 5 o'clock and its attenuation in dB at
-  the bottom (before host volume, gain and EQ make-up); "mute" at 0. A LO/HI gain tag sits at 2
-  o'clock. The 250 ms curve morph from the mock-up is not implemented.
+  the bottom (before host volume, gain and EQ make-up); "mute" at 0. "High Gain" or "Low Gain" sits
+  centred under the stream line. The 250 ms curve morph from the mock-up is not implemented.
 
 ## EQ presets
 
