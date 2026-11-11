@@ -150,15 +150,6 @@ bool storage_mounted(void)
     return mounted;
 }
 
-void storage_hold(uint32_t reason, bool on)
-{
-    if (storage_lock() != ESP_OK) {
-        return;
-    }
-    s_holds = on ? s_holds | reason : s_holds & ~reason;
-    storage_unlock();
-}
-
 uint32_t storage_mount_generation(void)
 {
     if (storage_lock() != ESP_OK) {

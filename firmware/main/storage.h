@@ -1,4 +1,4 @@
-// The Photo Sync volume (Photo1-3 and Game1-3 folders from the stock firmware): the stock wear-levelled FAT on the "storage" partition, mounted at
+// The Photo Sync volume (the stock firmware's Photo1-3 and Game1-3 folders): the stock wear-levelled FAT on the "storage" partition, mounted at
 // /disk and NEVER formatted (a failed mount leaves the volume untouched and reports an error).
 #pragma once
 
@@ -19,11 +19,8 @@ esp_err_t storage_unmount(void);
 bool storage_mounted(void);
 
 /** Reasons the volume stays local. A new local mount sets STORAGE_HOLD_REQUESTS; the UI clears it
- *  once pending host requests are checked. STORAGE_HOLD_ALBUM was set while the album was shown;
- *  the album is gone, so nothing sets it now, but usb_msc.c still honours it. */
+ *  once pending host requests are checked. (1U << 1) was the album's hold, removed with the album. */
 #define STORAGE_HOLD_REQUESTS (1U << 0)
-#define STORAGE_HOLD_ALBUM    (1U << 1)
-void storage_hold(uint32_t reason, bool on);
 uint32_t storage_holds(void);
 
 /** Local mount counter. Read it before checking requests, then pass it to storage_requests_checked,

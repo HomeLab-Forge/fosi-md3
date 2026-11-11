@@ -60,7 +60,7 @@ esp_err_t settings_load(void)
         g_settings.brightness = 2;
         dirty = true;
     }
-    if (g_settings.album_folder >= 6) {
+    if (g_settings.album_folder >= 6) {  // unused since 0.3.0; kept valid for the stock firmware
         g_settings.album_folder = 0;
         dirty = true;
     }

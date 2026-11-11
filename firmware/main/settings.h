@@ -22,7 +22,7 @@ typedef struct __attribute__((packed)) {
     uint8_t language;       // 0x0C
     uint8_t volume;         // 0x0D  0..100
     uint8_t volume_r;       // 0x0E  mirrors volume
-    uint8_t album_folder;   // 0x0F  0..5 = Photo1-3, Game1-3
+    uint8_t album_folder;   // 0x0F  0..5 = Photo1-3, Game1-3; unused since 0.3.0, kept valid for stock
     uint8_t ask_language;   // 0x10
     uint8_t eq_preset;      // 0x11  open firmware: EQ preset 0..8 (stock: padding, 0xFF -> Flat)
     uint8_t pad[2];         // 0x12

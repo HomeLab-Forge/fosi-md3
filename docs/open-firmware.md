@@ -345,8 +345,8 @@ TMPDIR=/tmp tests/host/run.sh
 Needs a host C compiler (`cc`). Compiles the real `link.c`, `usb_msc.c`, `storage.c` and
 `audio.c` against host stubs under UBSan, and checks Savitech link decoding (48k, 96k and 192k
 cases) and the link's ISR wake-up hook, MSC identity and capacity,
-raw-sector bounds, host mount and remount behaviour, returning the volume to the host (album
-hold, idle time), mount-failure cleanup, audio mode transitions, and the `f_mkfs` tripwire.
+raw-sector bounds, host mount and remount behaviour, returning the volume to the host (holds,
+idle time), mount-failure cleanup, audio mode transitions, and the `f_mkfs` tripwire.
 
 ## Host tools
 
@@ -360,7 +360,6 @@ hold, idle time), mount-failure cleanup, audio mode transitions, and the `f_mkfs
 | `tools/catch_rom.py` | Catch the boot window and hold the chip in download mode |
 | `tools/descriptors.py` | Parse the USB configuration descriptor without opening the device |
 | `tools/analyze_flash.py` | Partition table and image header from a flash dump |
-| `tools/make_gif.py` | A 240x240 test card (for the stock firmware's album) |
 
 Python 3.11 with `esptool` 5.x, `pyusb` (and libusb) and `Pillow`. Written on macOS and now used
 from Linux for dumping, flashing and the control channel. The volume handling in `md3.py` and
