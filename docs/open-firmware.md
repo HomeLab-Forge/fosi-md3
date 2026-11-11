@@ -289,9 +289,12 @@ window's USB-Serial-JTAG, a `/dev/ttyACM*` node) and 303a:4002 (Photo Sync and t
 channel). A udev rule that gives both to `plugdev`, for a user in that group:
 
 ```
-# /etc/udev/rules.d/60-fosi-md3.rules
-ATTRS{idVendor}=="303a", ATTRS{idProduct}=="1001|4002", GROUP="plugdev", MODE="0660"
+# /etc/udev/rules.d/70-md3.rules
+SUBSYSTEM=="usb", ATTR{idVendor}=="303a", ATTR{idProduct}=="1001|4002", GROUP="plugdev", MODE="0660", ENV{ID_MM_DEVICE_IGNORE}="1"
+SUBSYSTEM=="tty", ATTRS{idVendor}=="303a", ATTRS{idProduct}=="1001|4002", GROUP="plugdev", MODE="0660", ENV{ID_MM_DEVICE_IGNORE}="1"
 ```
+
+`ID_MM_DEVICE_IGNORE` keeps ModemManager from probing the port during its one-second window.
 
 Reload with `sudo udevadm control --reload` and replug. `catch_rom.py` only takes a fresh
 `/dev/ttyACM*` node whose USB device is 303a:1001, so other Espressif devices on the same host

@@ -50,7 +50,8 @@ Linux; the tools also work on macOS. In short:
 2. Dump the whole flash: `python tools/catch_rom.py --dump`, then replug the MD3. Do it twice.
 3. First flash: `python tools/catch_rom.py --hold`, replug, write `firmware/build/md3fw.bin` to
    0x10000 with esptool, then reset with `catch_rom.py --port`.
-4. Later updates, in U-Disk mode: `python tools/md3_deploy.py`.
+4. Later updates: the same as step 3. (`tools/md3_deploy.py` does it hands-free from U-Disk
+   mode, but finds the drive on macOS only for now.)
 
 The exact commands, the udev rule, the EQ calibration and the way back to stock are in
 [`docs/open-firmware.md`](docs/open-firmware.md).
