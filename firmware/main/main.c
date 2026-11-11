@@ -1,5 +1,6 @@
 #include "audio.h"
 #include "board.h"
+#include "eq.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -50,6 +51,7 @@ void app_main(void)
     if (result != ESP_OK) {
         ESP_LOGW(TAG, "settings unavailable; using defaults without saving: %s", esp_err_to_name(result));
     }
+    eq_init();
     result = storage_mount();
     if (result != ESP_OK) {
         ESP_LOGW(TAG, "photo storage unavailable; volume was not formatted");

@@ -6,6 +6,7 @@ idf_component_register(
         "board.c"
         "settings.c"
         "dac.c"
+        "eq.c"
         "link.c"
         "storage.c"
         "usb_msc.c"

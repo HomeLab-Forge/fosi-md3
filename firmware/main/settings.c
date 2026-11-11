@@ -52,6 +52,10 @@ esp_err_t settings_load(void)
         g_settings.filter = 0;
         dirty = true;
     }
+    if (g_settings.eq_preset >= SETTINGS_EQ_PRESETS) {
+        g_settings.eq_preset = 0;  // a stock record has 0xFF here
+        dirty = true;
+    }
     if (g_settings.brightness > 4) {
         g_settings.brightness = 2;
         dirty = true;
@@ -71,9 +75,9 @@ esp_err_t settings_load(void)
     if (dirty) {
         settings_touch();
     }
-    ESP_LOGI(TAG, "volume=%u filter=%u gain_high=%u host_vol=%u brightness=%u rotation=%u",
-             g_settings.volume, g_settings.filter, g_settings.gain_high, g_settings.vol_from_host,
-             g_settings.brightness, g_settings.rotation);
+    ESP_LOGI(TAG, "volume=%u eq=%u gain_high=%u host_vol=%u brightness=%u rotation=%u udisk=%u",
+             g_settings.volume, g_settings.eq_preset, g_settings.gain_high, g_settings.vol_from_host,
+             g_settings.brightness, g_settings.rotation, g_settings.udisk_mode);
     return ESP_OK;
 }
 

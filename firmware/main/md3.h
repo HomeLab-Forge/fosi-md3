@@ -5,6 +5,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "eq.h"
 #include "esp_err.h"
 #include "link.h"
 #include "settings.h"
@@ -29,6 +30,7 @@ typedef enum {
     EV_KEY,
     EV_LINK,          // host volume / rate changed
     EV_OFFER,         // host asks for the volume back now
+    EV_EQ_SCALE,      // value = log2_2x | log2_4x << 8 | (uint16_t)trim_tenth_db << 16
     EV_ROM,           // host asks for ROM download mode
 } md3_event_type_t;
 
@@ -46,6 +48,7 @@ bool md3_post(const md3_event_t *ev);
 typedef struct {
     md3_settings_t settings;
     link_state_t link;
+    eq_status_t eq;
     bool dac_present;
     int power_vbus_mv;
     bool power_charging;

@@ -22,6 +22,17 @@ static const char *TAG = "dac";
 #define ATT_MUTE        0xFF
 #define I2C_TIMEOUT_MS  500
 
+// Programmable interpolation filter (datasheet v0.2.3, "Customizable Programmable FIR Filters").
+#define REG_PROG_CTRL   0x87  // 135: [7] SPDIF_LOAD_USER_BITS (unrelated), [1] PROG_COEFF_WE, [0] PROG_COEFF_EN
+#define REG_PROG_ADDR   0x89  // 137: [7] PROG_COEFF_STAGE (0 = 2x, 1 = 4x), [6:0] PROG_COEFF_ADDR
+#define REG_PROG_DATA   0x8A  // 138..140: 24-bit signed coefficient, LSB first
+#define PROG_WE         0x02
+#define PROG_EN         0x01
+#define PROG_STAGE_4X   0x80
+// The volume ramps to the new attenuation at DAC_VOL_RATE_DOWN (reset value 4, about 23 ms for the
+// full range at 44.1 kHz); wait a little longer before touching the filter.
+#define MUTE_RAMP_MS    60
+
 // Init pairs copied from the stock firmware (DRAM 0x3fc99b18), written in this order.
 static const uint8_t k_init[][2] = {
     {0x01, 0xB7}, {0x05, 0x00}, {0x1D, 0x40}, {0x40, 0x00}, {0x41, 0x21},
@@ -46,6 +57,8 @@ static i2c_master_dev_handle_t s_dev;
 static bool s_present;
 static int s_cache_l = -1;
 static int s_cache_r = -1;
+static int s_makeup;           // EQ make-up in 0.5 dB steps, taken off the attenuation
+static uint32_t s_reset_count; // bumped by every dac_init(): the coefficient RAM is gone after a reset
 
 extern link_state_t g_link;
 
@@ -87,6 +100,10 @@ static int channel_attenuation(uint8_t host_vol)
     if (att > ATT_MUTE) {
         att = ATT_MUTE;
     }
+    // The EQ presets cut instead of boosting; give that level back, never past 0 dB attenuation.
+    if (att != ATT_MUTE) {
+        att = att > s_makeup ? att - s_makeup : 0;
+    }
     if (!g_settings.gain_high) {
         att = (att > 0xF2) ? ATT_MUTE : att + 12;
     }
@@ -115,6 +132,8 @@ esp_err_t dac_init(void)
         ESP_RETURN_ON_ERROR(i2c_master_bus_add_device(s_bus, &dev_cfg, &s_dev), TAG, "device");
     }
 
+    s_reset_count++;
+    s_makeup = 0;
     gpio_set_level(PIN_DAC_RESET, 0);
     vTaskDelay(pdMS_TO_TICKS(50));
     gpio_set_level(PIN_DAC_RESET, 1);
@@ -139,7 +158,7 @@ esp_err_t dac_init(void)
         read_reg(k_init[i][0], &back);
         ESP_LOGI(TAG, "reg 0x%02x = 0x%02x", k_init[i][0], back);
     }
-    dac_apply_filter();
+    dac_set_filter_shape(0);
     dac_invalidate();
     dac_apply_volume();
     ESP_LOGI(TAG, "ES9039Q2M ready");
@@ -161,7 +180,7 @@ void dac_apply_volume(void)
     }
 }
 
-void dac_apply_filter(void)
+void dac_set_filter_shape(uint8_t shape)
 {
     if (!s_present) {
         return;
@@ -172,7 +191,93 @@ void dac_apply_filter(void)
     if (read_reg(REG_FILTER, &reg) != ESP_OK) {
         reg = FILTER_RESERVED_DEFAULT;
     }
-    write_reg(REG_FILTER, (reg & ~FILTER_SHAPE_MASK) | (g_settings.filter & FILTER_SHAPE_MASK));
+    write_reg(REG_FILTER, (reg & ~FILTER_SHAPE_MASK) | (shape & FILTER_SHAPE_MASK));
+}
+
+// Mute both channels and wait for the soft ramp, so a filter change is never heard mid-signal.
+static void mute_for_filter_change(void)
+{
+    write_reg(REG_ATT_L, ATT_MUTE);
+    write_reg(REG_ATT_R, ATT_MUTE);
+    dac_invalidate();
+    vTaskDelay(pdMS_TO_TICKS(MUTE_RAMP_MS));
+}
+
+// Read-modify-write of reg 135: only PROG_COEFF_WE and PROG_COEFF_EN are ours.
+static esp_err_t prog_ctrl(uint8_t *base, bool enable)
+{
+    uint8_t reg = 0;
+    ESP_RETURN_ON_ERROR(read_reg(REG_PROG_CTRL, &reg), TAG, "read reg 135");
+    *base = reg & (uint8_t)~(PROG_WE | PROG_EN);
+    return write_reg(REG_PROG_CTRL, *base | (enable ? PROG_EN : 0));
+}
+
+static esp_err_t write_coeff(uint8_t base, uint8_t addr, int32_t value)
+{
+    const uint32_t v = (uint32_t)value & 0xFFFFFF;
+    ESP_RETURN_ON_ERROR(write_reg(REG_PROG_ADDR, addr), TAG, "addr");
+    ESP_RETURN_ON_ERROR(write_reg(REG_PROG_DATA, v & 0xFF), TAG, "data0");
+    ESP_RETURN_ON_ERROR(write_reg(REG_PROG_DATA + 1, (v >> 8) & 0xFF), TAG, "data1");
+    ESP_RETURN_ON_ERROR(write_reg(REG_PROG_DATA + 2, (v >> 16) & 0xFF), TAG, "data2");
+    ESP_RETURN_ON_ERROR(write_reg(REG_PROG_CTRL, base | PROG_WE), TAG, "we");
+    return write_reg(REG_PROG_CTRL, base);
+}
+
+esp_err_t dac_load_custom_filter(const int32_t *fir2x, size_t n2x, const int32_t *fir4x, size_t n4x, int makeup)
+{
+    ESP_RETURN_ON_FALSE(s_present, ESP_ERR_INVALID_STATE, TAG, "no DAC");
+    ESP_RETURN_ON_FALSE(n2x <= 128 && n4x <= 32, ESP_ERR_INVALID_ARG, TAG, "too many taps");
+    mute_for_filter_change();
+    uint8_t base = 0;
+    esp_err_t result = prog_ctrl(&base, false);
+    for (size_t i = 0; result == ESP_OK && i < n2x; i++) {
+        result = write_coeff(base, (uint8_t)i, fir2x[i]);
+    }
+    for (size_t i = 0; result == ESP_OK && i < n4x; i++) {
+        result = write_coeff(base, PROG_STAGE_4X | (uint8_t)i, fir4x[i]);
+    }
+    if (result == ESP_OK) {
+        result = prog_ctrl(&base, true);
+    }
+    if (result != ESP_OK) {
+        // Leave the built-in filter in charge rather than a half-written RAM.
+        prog_ctrl(&base, false);
+        makeup = 0;
+        ESP_LOGE(TAG, "custom filter load failed: %s", esp_err_to_name(result));
+    }
+    s_makeup = makeup;
+    dac_apply_volume();
+    return result;
+}
+
+esp_err_t dac_use_builtin_filter(uint8_t shape)
+{
+    ESP_RETURN_ON_FALSE(s_present, ESP_ERR_INVALID_STATE, TAG, "no DAC");
+    mute_for_filter_change();
+    uint8_t base = 0;
+    const esp_err_t result = prog_ctrl(&base, false);
+    dac_set_filter_shape(shape);
+    s_makeup = 0;
+    dac_apply_volume();
+    return result;
+}
+
+void dac_set_makeup(int steps)
+{
+    if (steps != s_makeup) {
+        s_makeup = steps;
+        dac_apply_volume();
+    }
+}
+
+uint32_t dac_reset_count(void)
+{
+    return s_reset_count;
+}
+
+int dac_volume_attenuation(void)
+{
+    return k_vol_table[g_settings.volume > 100 ? 100 : g_settings.volume];
 }
 
 void dac_invalidate(void)

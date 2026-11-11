@@ -11,6 +11,10 @@ Usage:
   md3ctl.py offer                     return the volume to the Mac now and re-present it
   md3ctl.py reenumerate               USB re-enumeration from the Mac (works on any firmware)
   md3ctl.py rom                       reboot to ROM download mode (md3_deploy.py uses this)
+  md3ctl.py eq-scale [LOG2_2X [LOG2_4X [TRIM_DB]]]
+                                      EQ coefficient scale: a unity-gain stage sums to 2^LOG2 (default
+                                      22 22 0.0); TRIM_DB fine-tunes the 2x stage in 0.1 dB steps.
+                                      Persisted on the device; calibrate at low volume (docs/open-firmware.md)
 """
 
 from __future__ import annotations
@@ -30,6 +34,7 @@ PROJECT = Path(__file__).resolve().parent.parent
 VID, PID = 0x303A, 0x4002
 OUT, IN = 0x40, 0xC0
 INFO, _TIME, KEY, SHOT, READ, LOG, OFFER, ROM, _SUN = range(1, 10)  # TIME and SUN retired with the clock
+EQ_SCALE = 0x0A
 ROM_VALUE, ROM_INDEX = 0x524D, 0x3344
 KEYS = {"vol_up": 0, "vol_down": 1, "menu": 2, "vista": 3}
 PRESSES = {"click": 0, "double": 1, "long": 2, "hold": 3}
@@ -125,6 +130,12 @@ def rom(dev=None) -> None:
     _out(ROM, ROM_VALUE, ROM_INDEX, dev=dev)
 
 
+def eq_scale(log2_2x: int = 22, log2_4x: int = 22, trim_db: float = 0.0, dev=None) -> None:
+    """Set the EQ coefficient scale; the firmware stalls values that would overflow 24 bits."""
+    trim = round(trim_db * 10)
+    _out(EQ_SCALE, (log2_2x & 0xFF) | (log2_4x & 0xFF) << 8, trim & 0xFFFF, dev=dev)
+
+
 def reenumerate(dev=None) -> None:
     """Have macOS reset and re-enumerate the device; firmware returns the volume on SET_CONFIGURATION."""
     (dev or find()).reset()
@@ -150,6 +161,12 @@ def main(argv: list[str]) -> int:
             reenumerate()
         elif cmd == "rom":
             rom()
+        elif cmd == "eq-scale":
+            e2 = int(args[0]) if args else 22
+            e4 = int(args[1]) if len(args) > 1 else 22
+            trim = float(args[2]) if len(args) > 2 else 0.0
+            eq_scale(e2, e4, trim)
+            print(json.dumps(info()["eq"], indent=2))
         else:
             print(f"unknown command {cmd!r}; see --help", file=sys.stderr)
             return 2

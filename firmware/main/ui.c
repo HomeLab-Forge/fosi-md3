@@ -7,6 +7,7 @@
 #include "audio.h"
 #include "board.h"
 #include "dac.h"
+#include "eq.h"
 #include "esp_check.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
@@ -75,6 +76,7 @@ static void publish_state(void)
     }
     md3_snapshot_t snapshot = {
         .settings = g_settings,
+        .eq = eq_status(),
         .link = g_link,
         .dac_present = dac_present(),
         .power_vbus_mv = power_vbus_mv(),
@@ -102,15 +104,6 @@ static void apply_rotation(void)
     lv_display_set_rotation(s_disp, rot[g_settings.rotation & 3]);
 }
 
-static const char *filter_name(int f)
-{
-    static const char *names[8] = {
-        "Min phase", "Lin fast apod", "Lin fast", "Lin fast LR",
-        "Lin slow", "Min fast", "Min slow", "Min slow LD",
-    };
-    return names[f & 7];
-}
-
 static void show_screen(screen_t scr)
 {
     s_screen = scr;
@@ -129,7 +122,7 @@ static void main_refresh(void)
         lv_label_set_text_fmt(s_vol, "%u", g_settings.volume);
     }
     lv_label_set_text(s_rate, g_link.rate_label);
-    snprintf(buf, sizeof(buf), "F%d  %s  %s%s", g_settings.filter + 1, g_settings.gain_high ? "HI" : "LO",
+    snprintf(buf, sizeof(buf), "%s  %s  %s%s", eq_preset_name(g_settings.eq_preset), g_settings.gain_high ? "HI" : "LO",
              g_settings.vol_from_host ? "HOST" : "FIXED", s_vista_locked ? "  " LV_SYMBOL_EYE_CLOSE : "");
     lv_label_set_text(s_status, buf);
 }
@@ -179,7 +172,7 @@ typedef enum {
 static void menu_item_text(int item, char *buf, size_t n)
 {
     switch (item) {
-    case MI_FILTER: snprintf(buf, n, "Filter: %s", filter_name(g_settings.filter)); break;
+    case MI_FILTER: snprintf(buf, n, "EQ: %s", eq_preset_name(g_settings.eq_preset)); break;
     case MI_GAIN: snprintf(buf, n, "Gain: %s", g_settings.gain_high ? "High" : "Low"); break;
     case MI_HOSTVOL: snprintf(buf, n, "Host volume: %s", g_settings.vol_from_host ? "On" : "Off"); break;
     case MI_BRIGHT: snprintf(buf, n, "Brightness: %d%%", k_brightness_pct[g_settings.brightness % 5]); break;
@@ -236,7 +229,10 @@ static void menu_activate(void)
     bool audio_changed = false;
     bool power_cycle = false;
     switch (s_menu_sel) {
-    case MI_FILTER: g_settings.filter = (g_settings.filter + 1) & 7; dac_apply_filter(); break;
+    case MI_FILTER:
+        g_settings.eq_preset = (g_settings.eq_preset + 1) % eq_preset_count();
+        eq_apply();
+        break;
     case MI_GAIN: g_settings.gain_high ^= 1; audio_changed = true; break;
     case MI_HOSTVOL: g_settings.vol_from_host ^= 1; audio_changed = true; break;
     case MI_BRIGHT: g_settings.brightness = (g_settings.brightness + 1) % 5; apply_brightness(); break;
@@ -382,7 +378,13 @@ static void handle_event(md3_event_t *ev)
         break;
     case EV_LINK:
         dac_apply_volume();
+        eq_apply();  // a new rate group needs its own coefficients
         main_refresh();
+        break;
+    case EV_EQ_SCALE:
+        if (eq_set_scale(ev->value & 0xFF, (ev->value >> 8) & 0xFF, (int16_t)(ev->value >> 16)) != ESP_OK) {
+            ESP_LOGW(TAG, "EQ scale 0x%08lx rejected", (unsigned long)ev->value);
+        }
         break;
     case EV_OFFER:
     case EV_ROM:
@@ -600,6 +602,7 @@ static void housekeeping(void)
             ESP_LOGW(TAG, "DAC not ready after power change");
         }
     }
+    eq_apply();  // cheap when nothing changed; reloads after any DAC reset (power cycle, mode switch)
     settings_tick();
     publish_state();
 }
