@@ -26,33 +26,52 @@
 
 static const char *TAG = "ui";
 
-#define COLOR_BG        lv_color_hex(0x06080A)
-#define COLOR_TRACK     lv_color_hex(0x202428)
-#define COLOR_ACCENT    lv_color_hex(0xFF6018)
-#define COLOR_TEXT      lv_color_hex(0xF0F0F0)
-#define COLOR_DIM       lv_color_hex(0x8A8F94)
+// Colours from design/status-screen.html. The panel inverts colours in hardware; board.c sets that.
+#define COLOR_BG        lv_color_hex(0x000000)
+#define COLOR_CURVE     lv_color_hex(0x7FD4FF)
+#define COLOR_CURVE_DIM lv_color_hex(0x2B4A5C)
+#define COLOR_RING      lv_color_hex(0xF2B94B)
+#define COLOR_TRACK     lv_color_hex(0x24282D)
+#define COLOR_LABEL     lv_color_hex(0xE7EDF2)
+#define COLOR_SUB       lv_color_hex(0x8A98A5)
+#define COLOR_DSD       lv_color_hex(0xC79BFF)
+#define COLOR_GRID      lv_color_hex(0x15212A)
+
 #define HOLD_REPEAT_US  70000
-#define TOAST_MS        1500
+#define HOT_MS          1500                  // the big dB value after a volume change
+#define AWAKE_US        (8 * 1000 * 1000)     // no key for this long: screen off
+#define GC9A01_SLPIN    0x10
+#define GC9A01_SLPOUT   0x11
+#define GC9A01_DISPOFF  0x28
+#define GC9A01_DISPON   0x29
+#define GC9A01_SLEEP_GAP_US (120 * 1000)      // GC9A01: 120 ms between sleep in and sleep out, both ways
 
-typedef enum { SCR_MAIN, SCR_MENU } screen_t;
-
-extern link_state_t g_link;
+// Curve box: 200 Hz..20 kHz on a log axis from x 36 to 204, 0 dB at y 112, 8 px per dB.
+#define CURVE_LEFT      36
+#define CURVE_RIGHT     204
+#define CURVE_MID       112
+#define CURVE_PX_PER_DB 8
+#define CURVE_MAX_DB    5
 
 static QueueHandle_t s_queue;
 static lv_display_t *s_disp;
-static screen_t s_screen = SCR_MAIN;
-static bool s_vista_locked;
-static bool s_backlight_off;
+static esp_lcd_panel_io_handle_t s_io;
 static int64_t s_last_hold_us;
 
-// main
-static lv_obj_t *s_main, *s_arc, *s_vol, *s_rate, *s_status;
-// menu
-static lv_obj_t *s_menu, *s_menu_title, *s_menu_rows[5];
-static int s_menu_sel;
-// volume toast on the top layer
-static lv_obj_t *s_toast;
-static lv_timer_t *s_toast_timer;
+// Wake and sleep. The screen is dark (backlight 0, panel in sleep, LVGL stopped) unless Menu woke it.
+static bool s_awake;
+static int64_t s_last_key_us;
+static int64_t s_panel_toggle_us;     // last sleep-in or sleep-out
+
+// Work that talks to the DAC for long; done by the UI task after it lets go of the LVGL lock.
+static bool s_pending_eq;
+static bool s_pending_power_cycle;
+
+static lv_obj_t *s_scr, *s_arc, *s_stream, *s_gain, *s_grid, *s_curve, *s_name, *s_note, *s_db, *s_big;
+static lv_point_precise_t s_grid_points[2];
+static lv_point_precise_t *s_curve_points;
+static lv_timer_t *s_hot_timer;
+
 static uint64_t s_storage_total;
 static uint64_t s_storage_free;
 static int64_t s_storage_read_us;
@@ -76,8 +95,8 @@ static void publish_state(void)
     }
     md3_snapshot_t snapshot = {
         .settings = g_settings,
-        .eq = eq_status(),
         .link = g_link,
+        .eq = eq_status(),
         .dac_present = dac_present(),
         .power_vbus_mv = power_vbus_mv(),
         .power_charging = power_charging(),
@@ -90,11 +109,6 @@ static void publish_state(void)
     md3_state_publish(&snapshot);
 }
 
-static void apply_brightness(void)
-{
-    board_backlight_set(s_backlight_off ? 0 : k_brightness_pct[g_settings.brightness % 5]);
-}
-
 static void apply_rotation(void)
 {
     static const lv_display_rotation_t rot[4] = {
@@ -104,36 +118,121 @@ static void apply_rotation(void)
     lv_display_set_rotation(s_disp, rot[g_settings.rotation & 3]);
 }
 
-static void show_screen(screen_t scr)
+static lv_obj_t *add_label(const lv_font_t *font, lv_color_t color, int y)
 {
-    s_screen = scr;
-    lv_screen_load(scr == SCR_MAIN ? s_main : s_menu);
+    lv_obj_t *l = lv_label_create(s_scr);
+    lv_obj_set_style_text_font(l, font, 0);
+    lv_obj_set_style_text_color(l, color, 0);
+    lv_obj_set_style_text_align(l, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_align(l, LV_ALIGN_TOP_MID, 0, y);
+    return l;
 }
 
-// ------------------------------------------------------------------ main dial
+// ------------------------------------------------------------------ the status screen
 
-static void main_refresh(void)
+static void refresh_stream(void)
 {
-    char buf[48];
-    lv_arc_set_value(s_arc, g_settings.volume);
-    if (g_settings.vol_from_host && g_link.host_mute) {
-        lv_label_set_text(s_vol, "MUTE");
+    if (g_link.dsd) {
+        lv_label_set_text(s_stream, g_link.rate_hz ? g_link.rate_label : "DSD");
+        lv_obj_set_style_text_color(s_stream, COLOR_DSD, 0);
+    } else if (g_link.rate_hz) {
+        const unsigned k = g_link.rate_hz / 1000, frac = g_link.rate_hz % 1000 / 100;
+        if (frac) {
+            lv_label_set_text_fmt(s_stream, "%u.%u kHz PCM", k, frac);
+        } else {
+            lv_label_set_text_fmt(s_stream, "%u kHz PCM", k);
+        }
+        lv_obj_set_style_text_color(s_stream, COLOR_LABEL, 0);
     } else {
-        lv_label_set_text_fmt(s_vol, "%u", g_settings.volume);
+        lv_label_set_text(s_stream, "no stream");
+        lv_obj_set_style_text_color(s_stream, COLOR_SUB, 0);
     }
-    lv_label_set_text(s_rate, g_link.rate_label);
-    snprintf(buf, sizeof(buf), "%s  %s  %s%s", eq_preset_name(g_settings.eq_preset), g_settings.gain_high ? "HI" : "LO",
-             g_settings.vol_from_host ? "HOST" : "FIXED", s_vista_locked ? "  " LV_SYMBOL_EYE_CLOSE : "");
-    lv_label_set_text(s_status, buf);
 }
 
-static void build_main(void)
+static void refresh_eq(void)
 {
-    s_main = lv_obj_create(NULL);
-    lv_obj_set_style_bg_color(s_main, COLOR_BG, 0);
-    lv_obj_remove_flag(s_main, LV_OBJ_FLAG_SCROLLABLE);
+    const eq_status_t eq = eq_status();
+    const int16_t *curve = eq_curve(eq.preset, eq.group);
+    const int n = eq_curve_points();
+    for (int i = 0; i < n; i++) {
+        int cdb = curve[i];
+        cdb = cdb > CURVE_MAX_DB * 100 ? CURVE_MAX_DB * 100 : cdb < -CURVE_MAX_DB * 100 ? -CURVE_MAX_DB * 100 : cdb;
+        s_curve_points[i].x = CURVE_LEFT + (CURVE_RIGHT - CURVE_LEFT) * i / (n - 1);
+        s_curve_points[i].y = CURVE_MID - cdb * CURVE_PX_PER_DB / 100;
+    }
+    lv_line_set_points(s_curve, s_curve_points, n);
+    const bool dsd = eq.state == EQ_STATE_DSD;
+    lv_obj_set_style_line_color(s_curve, dsd ? COLOR_CURVE_DIM : COLOR_CURVE, 0);
+    lv_label_set_text(s_name, eq_preset_name(eq.preset));
+    lv_obj_set_style_text_color(s_name, dsd ? COLOR_SUB : COLOR_LABEL, 0);
+    lv_label_set_text(s_note, dsd ? "EQ not used on DSD"
+                              : eq.state == EQ_STATE_FALLBACK ? "Flat at this rate"
+                              : eq_preset_note(eq.preset));
+}
 
-    s_arc = lv_arc_create(s_main);
+static void format_db(char *buf, size_t n)
+{
+    const int att = dac_volume_attenuation();  // 0.5 dB steps
+    if (att >= 0xFF || (g_settings.vol_from_host && g_link.host_mute)) {
+        snprintf(buf, n, "mute");
+    } else {
+        snprintf(buf, n, "%s%d.%d dB", att ? "-" : "", att / 2, att % 2 ? 5 : 0);
+    }
+}
+
+static void refresh_volume(void)
+{
+    char buf[16];
+    format_db(buf, sizeof(buf));
+    lv_arc_set_value(s_arc, g_settings.volume);
+    lv_label_set_text(s_db, buf);
+    lv_label_set_text(s_big, buf);
+    lv_label_set_text(s_gain, g_settings.gain_high ? "HI" : "LO");
+}
+
+static void refresh_all(void)
+{
+    refresh_stream();
+    refresh_eq();
+    refresh_volume();
+}
+
+// While "hot" the big value replaces the preset name, note and small dB, and the ring brightens.
+static void set_hot(bool hot)
+{
+    lv_obj_update_flag(s_big, LV_OBJ_FLAG_HIDDEN, !hot);
+    lv_obj_update_flag(s_name, LV_OBJ_FLAG_HIDDEN, hot);
+    lv_obj_update_flag(s_note, LV_OBJ_FLAG_HIDDEN, hot);
+    lv_obj_update_flag(s_db, LV_OBJ_FLAG_HIDDEN, hot);
+    lv_obj_set_style_arc_opa(s_arc, hot ? LV_OPA_COVER : LV_OPA_80, LV_PART_INDICATOR);
+}
+
+static void hot_expired(lv_timer_t *t)
+{
+    set_hot(false);
+    lv_timer_pause(t);
+}
+
+// Show text in the big slot for HOT_MS: the volume, or a mode change.
+static void show_hot(const char *text)
+{
+    if (text) {
+        lv_label_set_text(s_big, text);
+    }
+    set_hot(true);
+    lv_timer_reset(s_hot_timer);
+    lv_timer_resume(s_hot_timer);
+}
+
+static void build_screen(void)
+{
+    s_scr = lv_obj_create(NULL);
+    lv_obj_set_style_bg_color(s_scr, COLOR_BG, 0);
+    lv_obj_set_style_bg_opa(s_scr, LV_OPA_COVER, 0);
+    lv_obj_remove_flag(s_scr, LV_OBJ_FLAG_SCROLLABLE);
+
+    // Volume ring from 7 to 5 o'clock (LVGL angles run clockwise from 3 o'clock).
+    s_arc = lv_arc_create(s_scr);
     lv_obj_set_size(s_arc, 228, 228);
     lv_obj_center(s_arc);
     lv_arc_set_rotation(s_arc, 135);
@@ -141,155 +240,99 @@ static void build_main(void)
     lv_arc_set_range(s_arc, 0, 100);
     lv_obj_remove_style(s_arc, NULL, LV_PART_KNOB);
     lv_obj_remove_flag(s_arc, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_set_style_arc_width(s_arc, 10, LV_PART_MAIN);
-    lv_obj_set_style_arc_width(s_arc, 10, LV_PART_INDICATOR);
+    lv_obj_set_style_arc_width(s_arc, 6, LV_PART_MAIN);
+    lv_obj_set_style_arc_width(s_arc, 6, LV_PART_INDICATOR);
     lv_obj_set_style_arc_color(s_arc, COLOR_TRACK, LV_PART_MAIN);
-    lv_obj_set_style_arc_color(s_arc, COLOR_ACCENT, LV_PART_INDICATOR);
+    lv_obj_set_style_arc_color(s_arc, COLOR_RING, LV_PART_INDICATOR);
 
-    s_vol = lv_label_create(s_main);
-    lv_obj_set_style_text_font(s_vol, &lv_font_montserrat_48, 0);
-    lv_obj_set_style_text_color(s_vol, COLOR_TEXT, 0);
-    lv_obj_align(s_vol, LV_ALIGN_CENTER, 0, -8);
+    s_stream = add_label(&lv_font_montserrat_16, COLOR_LABEL, 34);
+    s_gain = lv_label_create(s_scr);
+    lv_obj_set_style_text_font(s_gain, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(s_gain, COLOR_SUB, 0);
+    lv_obj_align(s_gain, LV_ALIGN_CENTER, 61, -62);  // 2 o'clock
 
-    s_rate = lv_label_create(s_main);
-    lv_obj_set_style_text_font(s_rate, &lv_font_montserrat_20, 0);
-    lv_obj_set_style_text_color(s_rate, COLOR_ACCENT, 0);
-    lv_obj_align(s_rate, LV_ALIGN_CENTER, 0, 36);
+    s_grid_points[0] = (lv_point_precise_t){CURVE_LEFT, CURVE_MID};
+    s_grid_points[1] = (lv_point_precise_t){CURVE_RIGHT, CURVE_MID};
+    s_grid = lv_line_create(s_scr);
+    lv_line_set_points(s_grid, s_grid_points, 2);
+    lv_obj_set_style_line_width(s_grid, 1, 0);
+    lv_obj_set_style_line_color(s_grid, COLOR_GRID, 0);
+    lv_obj_set_pos(s_grid, 0, 0);
 
-    s_status = lv_label_create(s_main);
-    lv_obj_set_style_text_font(s_status, &lv_font_montserrat_14, 0);
-    lv_obj_set_style_text_color(s_status, COLOR_DIM, 0);
-    lv_obj_align(s_status, LV_ALIGN_CENTER, 0, 68);
-    main_refresh();
+    s_curve = lv_line_create(s_scr);
+    lv_obj_set_style_line_width(s_curve, 2, 0);
+    lv_obj_set_style_line_rounded(s_curve, true, 0);
+    lv_obj_set_pos(s_curve, 0, 0);
+
+    s_name = add_label(&lv_font_montserrat_16, COLOR_LABEL, 154);
+    s_note = add_label(&lv_font_montserrat_14, COLOR_SUB, 174);
+    s_db = add_label(&lv_font_montserrat_14, COLOR_RING, 200);
+    s_big = add_label(&lv_font_montserrat_28, COLOR_RING, 160);
+    lv_obj_add_flag(s_big, LV_OBJ_FLAG_HIDDEN);
+
+    s_hot_timer = lv_timer_create(hot_expired, HOT_MS, NULL);
+    lv_timer_pause(s_hot_timer);
+    refresh_all();
+    lv_screen_load(s_scr);
 }
 
-// ------------------------------------------------------------------ menu
+// ------------------------------------------------------------------ wake and sleep
 
-typedef enum {
-    MI_FILTER, MI_GAIN, MI_HOSTVOL, MI_BRIGHT, MI_ROTATE, MI_UAC, MI_UDISK, MI_EXIT, MI_COUNT,
-} menu_item_t;
-
-static void menu_item_text(int item, char *buf, size_t n)
+static void panel_cmd(uint8_t cmd)
 {
-    switch (item) {
-    case MI_FILTER: snprintf(buf, n, "EQ: %s", eq_preset_name(g_settings.eq_preset)); break;
-    case MI_GAIN: snprintf(buf, n, "Gain: %s", g_settings.gain_high ? "High" : "Low"); break;
-    case MI_HOSTVOL: snprintf(buf, n, "Host volume: %s", g_settings.vol_from_host ? "On" : "Off"); break;
-    case MI_BRIGHT: snprintf(buf, n, "Brightness: %d%%", k_brightness_pct[g_settings.brightness % 5]); break;
-    case MI_ROTATE: snprintf(buf, n, "Rotate: %d", (g_settings.rotation & 3) * 90); break;
-    case MI_UAC: snprintf(buf, n, "USB audio: UAC %s", g_settings.uac1 ? "1.0" : "2.0"); break;
-    case MI_UDISK: snprintf(buf, n, "USB mode: %s", g_settings.udisk_mode ? "U-Disk" : "DAC"); break;
-    default: snprintf(buf, n, "Exit"); break;
+    // tx_param waits for any colour transfer still in flight, so this is safe right after a flush.
+    if (esp_lcd_panel_io_tx_param(s_io, cmd, NULL, 0) != ESP_OK) {
+        ESP_LOGW(TAG, "panel command 0x%02x failed", cmd);
     }
 }
 
-static void menu_refresh(void)
+static void panel_gap(void)
 {
-    char buf[40];
-    for (int row = 0; row < 5; row++) {
-        const int item = s_menu_sel + row - 2;
-        lv_obj_t *label = s_menu_rows[row];
-        if (item < 0 || item >= MI_COUNT) {
-            lv_label_set_text(label, "");
-            continue;
-        }
-        menu_item_text(item, buf, sizeof(buf));
-        lv_label_set_text(label, buf);
-        const bool sel = row == 2;
-        lv_obj_set_style_text_color(label, sel ? COLOR_BG : (row == 1 || row == 3 ? COLOR_TEXT : COLOR_DIM), 0);
-        lv_obj_set_style_bg_opa(label, sel ? LV_OPA_COVER : LV_OPA_TRANSP, 0);
+    const int64_t since = esp_timer_get_time() - s_panel_toggle_us;
+    if (since < GC9A01_SLEEP_GAP_US) {
+        vTaskDelay(pdMS_TO_TICKS((GC9A01_SLEEP_GAP_US - since) / 1000 + 1));
     }
 }
 
-static void build_menu(void)
+// Call with the LVGL lock held.
+static void screen_wake(void)
 {
-    s_menu = lv_obj_create(NULL);
-    lv_obj_set_style_bg_color(s_menu, COLOR_BG, 0);
-    lv_obj_remove_flag(s_menu, LV_OBJ_FLAG_SCROLLABLE);
-    s_menu_title = lv_label_create(s_menu);
-    lv_label_set_text(s_menu_title, "SETTINGS");
-    lv_obj_set_style_text_color(s_menu_title, COLOR_ACCENT, 0);
-    lv_obj_set_style_text_font(s_menu_title, &lv_font_montserrat_14, 0);
-    lv_obj_align(s_menu_title, LV_ALIGN_TOP_MID, 0, 26);
-    for (int row = 0; row < 5; row++) {
-        lv_obj_t *l = lv_label_create(s_menu);
-        lv_obj_set_width(l, row == 2 ? 200 : 180);
-        lv_obj_set_style_text_align(l, LV_TEXT_ALIGN_CENTER, 0);
-        lv_obj_set_style_text_font(l, &lv_font_montserrat_16, 0);
-        lv_obj_set_style_bg_color(l, COLOR_ACCENT, 0);
-        lv_obj_set_style_radius(l, 6, 0);
-        lv_obj_set_style_pad_ver(l, 4, 0);
-        lv_obj_align(l, LV_ALIGN_CENTER, 0, (row - 2) * 34);
-        s_menu_rows[row] = l;
-    }
-}
-
-static void menu_activate(void)
-{
-    bool audio_changed = false;
-    bool power_cycle = false;
-    switch (s_menu_sel) {
-    case MI_FILTER:
-        g_settings.eq_preset = (g_settings.eq_preset + 1) % eq_preset_count();
-        eq_apply();
-        break;
-    case MI_GAIN: g_settings.gain_high ^= 1; audio_changed = true; break;
-    case MI_HOSTVOL: g_settings.vol_from_host ^= 1; audio_changed = true; break;
-    case MI_BRIGHT: g_settings.brightness = (g_settings.brightness + 1) % 5; apply_brightness(); break;
-    case MI_ROTATE: g_settings.rotation = (g_settings.rotation + 1) & 3; apply_rotation(); break;
-    case MI_UAC:
-        g_settings.uac1 ^= 1;
-        power_cycle = true;
-        break;
-    case MI_UDISK:
-        g_settings.udisk_mode ^= 1;
-        power_cycle = true;
-        break;
-    default: main_refresh(); show_screen(SCR_MAIN); return;
-    }
-    if (power_cycle) {
-        if (audio_power_cycle() != ESP_OK) {
-            ESP_LOGW(TAG, "DAC not ready after UAC change");
-        }
-    } else if (audio_changed) {
-        dac_apply_volume();
-    }
-    settings_touch();
-    menu_refresh();
-}
-
-// ------------------------------------------------------------------ volume toast
-
-static void toast_hide(lv_timer_t *t)
-{
-    lv_obj_add_flag(s_toast, LV_OBJ_FLAG_HIDDEN);
-    lv_timer_pause(t);
-}
-
-static void toast_show(void)
-{
-    if (s_screen == SCR_MAIN) {
+    if (s_awake) {
         return;
     }
-    lv_label_set_text_fmt(s_toast, "VOL %u", g_settings.volume);
-    lv_obj_remove_flag(s_toast, LV_OBJ_FLAG_HIDDEN);
-    lv_timer_reset(s_toast_timer);
-    lv_timer_resume(s_toast_timer);
+    panel_gap();
+    panel_cmd(GC9A01_SLPOUT);
+    vTaskDelay(pdMS_TO_TICKS(120));  // sleep-out settles before the next command and before any draw
+    s_panel_toggle_us = esp_timer_get_time();
+    panel_cmd(GC9A01_DISPON);
+    lvgl_port_resume();
+    set_hot(false);
+    refresh_all();
+    lv_obj_invalidate(s_scr);
+    lv_refr_now(s_disp);
+    vTaskDelay(pdMS_TO_TICKS(20));   // let the last DMA flush land before the light comes on
+    board_backlight_set(k_brightness_pct[g_settings.brightness % 5]);
+    s_awake = true;
+    s_last_key_us = esp_timer_get_time();
+    ESP_LOGI(TAG, "screen on");
 }
 
-static void build_toast(void)
+// Call with the LVGL lock held.
+static void screen_sleep(void)
 {
-    s_toast = lv_label_create(lv_layer_top());
-    lv_obj_set_style_bg_color(s_toast, COLOR_BG, 0);
-    lv_obj_set_style_bg_opa(s_toast, LV_OPA_80, 0);
-    lv_obj_set_style_text_color(s_toast, COLOR_ACCENT, 0);
-    lv_obj_set_style_text_font(s_toast, &lv_font_montserrat_20, 0);
-    lv_obj_set_style_pad_all(s_toast, 6, 0);
-    lv_obj_set_style_radius(s_toast, 8, 0);
-    lv_obj_align(s_toast, LV_ALIGN_BOTTOM_MID, 0, -24);
-    lv_obj_add_flag(s_toast, LV_OBJ_FLAG_HIDDEN);
-    s_toast_timer = lv_timer_create(toast_hide, TOAST_MS, NULL);
-    lv_timer_pause(s_toast_timer);
+    if (!s_awake) {
+        return;
+    }
+    board_backlight_set(0);
+    lv_timer_pause(s_hot_timer);
+    set_hot(false);
+    lvgl_port_stop();  // no tick, no LVGL timers: nothing redraws until the next wake
+    panel_gap();
+    panel_cmd(GC9A01_DISPOFF);
+    panel_cmd(GC9A01_SLPIN);
+    s_panel_toggle_us = esp_timer_get_time();
+    s_awake = false;
+    ESP_LOGI(TAG, "screen off");
 }
 
 // ------------------------------------------------------------------ events
@@ -304,8 +347,10 @@ static void volume_step(int delta)
     g_settings.volume = v;
     settings_touch();
     dac_apply_volume();
-    main_refresh();
-    toast_show();
+    if (s_awake) {
+        refresh_volume();
+        show_hot(NULL);
+    }
 }
 
 static void handle_key(md3_key_t key, md3_press_t press)
@@ -317,56 +362,36 @@ static void handle_key(md3_key_t key, md3_press_t press)
         }
         s_last_hold_us = now;
     }
-    if (s_backlight_off) {  // any key wakes the screen and is otherwise consumed
-        s_backlight_off = false;
-        apply_brightness();
-        return;
+    if (s_awake) {
+        s_last_key_us = esp_timer_get_time();
     }
-    const bool vol = key == KEY_VOL_UP || key == KEY_VOL_DOWN;
-    // Menus scroll with the volume keys; at 180/270 degrees the stock firmware swaps them.
-    const bool flipped = (g_settings.rotation & 3) >= 2;
-    const int dir = (key == KEY_VOL_UP ? 1 : -1) * (flipped && s_screen == SCR_MENU ? -1 : 1);
-
-    switch (s_screen) {
-    case SCR_MENU:
-        if (vol && press != PRESS_LONG) {
-            s_menu_sel = (s_menu_sel - dir + MI_COUNT) % MI_COUNT;
-            menu_refresh();
-        } else if (key == KEY_MENU && press == PRESS_CLICK) {
-            menu_activate();
-        } else if (key == KEY_VISTA || (key == KEY_MENU && press == PRESS_LONG)) {
-            main_refresh();
-            show_screen(SCR_MAIN);
+    switch (key) {
+    case KEY_VOL_UP:
+    case KEY_VOL_DOWN:
+        // Volume works with the screen off and does not wake it.
+        if (press != PRESS_LONG) {
+            volume_step(key == KEY_VOL_UP ? 1 : -1);
         }
-        return;
-    default:
         break;
-    }
-
-    if (vol && press != PRESS_LONG) {
-        volume_step(dir);
-        return;
-    }
-    if (key == KEY_MENU) {
-        if (press == PRESS_LONG) {
-            s_vista_locked = !s_vista_locked;
-            main_refresh();
-        } else {
-            s_menu_sel = 0;
-            menu_refresh();
-            show_screen(SCR_MENU);
-        }
-        return;
-    }
-    if (key == KEY_VISTA && !s_vista_locked) {
-        if (press == PRESS_LONG) {
-            s_backlight_off = true;
-            apply_brightness();
-        } else if (press == PRESS_DOUBLE) {
-            g_settings.rotation = (g_settings.rotation + 1) & 3;
-            apply_rotation();
+    case KEY_MENU:
+        if (!s_awake) {
+            screen_wake();  // the first press only wakes, whatever its length
+        } else if (press == PRESS_CLICK) {
+            g_settings.eq_preset = (g_settings.eq_preset + 1) % eq_preset_count();
             settings_touch();
+            s_pending_eq = true;
+            set_hot(false);
+            refresh_eq();
+        } else if (press == PRESS_LONG) {
+            // DAC (Savitech on the port) <-> U-Disk (Photo Sync); the old menu's USB mode item.
+            g_settings.udisk_mode ^= 1;
+            settings_touch();
+            s_pending_power_cycle = true;
+            show_hot(g_settings.udisk_mode ? "U-Disk" : "DAC");
         }
+        break;
+    case KEY_VISTA:
+        break;  // unassigned; holding it at power-up still keeps the USB recovery path
     }
 }
 
@@ -378,8 +403,10 @@ static void handle_event(md3_event_t *ev)
         break;
     case EV_LINK:
         dac_apply_volume();
-        eq_apply();  // a new rate group needs its own coefficients
-        main_refresh();
+        s_pending_eq = true;  // a new rate group needs its own coefficients
+        if (s_awake) {
+            refresh_all();
+        }
         break;
     case EV_EQ_SCALE:
         if (eq_set_scale(ev->value & 0xFF, (ev->value >> 8) & 0xFF, (int16_t)(ev->value >> 16)) != ESP_OK) {
@@ -390,7 +417,26 @@ static void handle_event(md3_event_t *ev)
     case EV_ROM:
         break;  // handled by ui_task outside the LVGL lock
     }
-    publish_state();
+}
+
+// The DAC work an event asked for, outside the LVGL lock so LVGL can draw meanwhile.
+static void run_pending(void)
+{
+    if (s_pending_power_cycle) {
+        s_pending_power_cycle = false;
+        if (audio_power_cycle() != ESP_OK) {
+            ESP_LOGW(TAG, "DAC not ready after the mode switch");
+        }
+        s_pending_eq = true;  // the DAC reset dropped the coefficients
+    }
+    if (s_pending_eq) {
+        s_pending_eq = false;
+        eq_apply();
+        if (s_awake && lvgl_port_lock(0)) {
+            refresh_eq();  // the rate group or a load failure can change what is shown
+            lvgl_port_unlock();
+        }
+    }
 }
 
 static void process_event(md3_event_t *ev)
@@ -399,6 +445,8 @@ static void process_event(md3_event_t *ev)
         handle_event(ev);
         lvgl_port_unlock();
     }
+    run_pending();
+    publish_state();
 }
 
 // A host asks for ROM download mode by writing ROM_REQUEST_PATH, starting with the marker, to
@@ -418,9 +466,10 @@ static void return_after_request(void)
 static void reboot_to_rom(void)
 {
     if (lvgl_port_lock(0)) {
-        show_screen(SCR_MAIN);
-        lv_label_set_text(s_rate, "ROM download mode");
-        lv_refr_now(s_disp);
+        lv_label_set_text(s_note, "ROM download mode");
+        if (s_awake) {
+            lv_refr_now(s_disp);
+        }
         lvgl_port_unlock();
     }
     vTaskDelay(pdMS_TO_TICKS(300));  // let the panel show the notice and the host see the status stage
@@ -603,6 +652,10 @@ static void housekeeping(void)
         }
     }
     eq_apply();  // cheap when nothing changed; reloads after any DAC reset (power cycle, mode switch)
+    if (s_awake && esp_timer_get_time() - s_last_key_us >= AWAKE_US && lvgl_port_lock(0)) {
+        screen_sleep();
+        lvgl_port_unlock();
+    }
     settings_tick();
     publish_state();
 }
@@ -633,6 +686,9 @@ static void ui_task(void *arg)
 
 esp_err_t ui_init(esp_lcd_panel_io_handle_t io, esp_lcd_panel_handle_t panel)
 {
+    s_io = io;
+    s_curve_points = calloc(eq_curve_points(), sizeof(*s_curve_points));
+    ESP_RETURN_ON_FALSE(s_curve_points, ESP_ERR_NO_MEM, TAG, "curve points");
     const lvgl_port_cfg_t port_cfg = ESP_LVGL_PORT_INIT_CONFIG();
     ESP_RETURN_ON_ERROR(lvgl_port_init(&port_cfg), TAG, "lvgl port");
     const lvgl_port_display_cfg_t disp_cfg = {
@@ -649,13 +705,13 @@ esp_err_t ui_init(esp_lcd_panel_io_handle_t io, esp_lcd_panel_handle_t panel)
     ESP_RETURN_ON_FALSE(s_disp, ESP_FAIL, TAG, "display");
 
     lvgl_port_lock(0);
-    build_main();
-    build_menu();
-    build_toast();
+    build_screen();
     apply_rotation();
-    show_screen(SCR_MAIN);
+    // Start dark: board_lcd_init() left the panel awake with the backlight at 0.
+    s_awake = true;
+    s_panel_toggle_us = esp_timer_get_time();
+    screen_sleep();
     lvgl_port_unlock();
-    apply_brightness();
     publish_state();
     return ESP_OK;
 }
@@ -669,8 +725,7 @@ esp_err_t ui_start(void)
 
 const char *ui_screen_name(void)
 {
-    static const char *names[] = {"main", "menu"};
-    return names[s_screen];
+    return s_awake ? "status" : "off";
 }
 
 esp_err_t ui_screenshot_bmp(uint8_t **out, size_t *len)
