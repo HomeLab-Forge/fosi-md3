@@ -21,6 +21,7 @@ static i2c_slave_dev_handle_t s_slave;
 static QueueHandle_t s_queue;
 static uint8_t s_regs[256];
 static bool s_decoded;
+static bool (*s_notify)(void);  // called from the ISR after each queued write; see link_set_notify()
 
 link_state_t g_link = {.rate_label = "--"};
 
@@ -32,6 +33,9 @@ static bool on_receive(i2c_slave_dev_handle_t slave, const i2c_slave_rx_done_eve
     const link_write_t w = {.reg = evt->buffer[0], .val = evt->buffer[1]};
     BaseType_t woken = pdFALSE;
     xQueueSendFromISR(s_queue, &w, &woken);
+    if (s_notify && s_notify()) {
+        woken = pdTRUE;
+    }
     return woken == pdTRUE;
 }
 
@@ -108,6 +112,11 @@ static void decode_format(link_state_t *s)
             snprintf(s->rate_label, sizeof(s->rate_label), "--");
         }
     }
+}
+
+void link_set_notify(bool (*notify_from_isr)(void))
+{
+    s_notify = notify_from_isr;
 }
 
 bool link_poll(link_state_t *out)

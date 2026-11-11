@@ -1,17 +1,16 @@
 #include "audio.h"
 #include "board.h"
+#include "eq.h"
 #include "esp_log.h"
-#include "esp_netif.h"
+#include "esp_pm.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "keys.h"
 #include "link.h"
 #include "logbuf.h"
 #include "md3.h"
-#include "net.h"
 #include "nvs_flash.h"
 #include "power.h"
-#include "radio_ble.h"
 #include "settings.h"
 #include "storage.h"
 #include "ui.h"
@@ -44,8 +43,17 @@ void app_main(void)
         }
     }
 
+    // Dynamic frequency scaling between 160 and 80 MHz. Automatic light sleep stays off: it would
+    // gate clocks under the Savitech I2C-slave link and USB. Code that needs full speed (the screen
+    // while it is on) holds an ESP_PM_CPU_FREQ_MAX lock.
+    const esp_pm_config_t pm = {.max_freq_mhz = 160, .min_freq_mhz = 80, .light_sleep_enable = false};
+    esp_err_t result = esp_pm_configure(&pm);
+    if (result != ESP_OK) {
+        ESP_LOGW(TAG, "power management not configured: %s", esp_err_to_name(result));
+    }
+
     // Never erase NVS automatically: a version/page error must not destroy provisioning.
-    esp_err_t result = nvs_flash_init();
+    result = nvs_flash_init();
     if (result != ESP_OK) {
         ESP_LOGE(TAG, "NVS init failed (left untouched): %s", esp_err_to_name(result));
     }
@@ -53,6 +61,7 @@ void app_main(void)
     if (result != ESP_OK) {
         ESP_LOGW(TAG, "settings unavailable; using defaults without saving: %s", esp_err_to_name(result));
     }
+    eq_init();
     result = storage_mount();
     if (result != ESP_OK) {
         ESP_LOGW(TAG, "photo storage unavailable; volume was not formatted");
@@ -82,14 +91,6 @@ void app_main(void)
     result = keys_init();
     if (result != ESP_OK) {
         ESP_LOGW(TAG, "button init failed: %s", esp_err_to_name(result));
-    }
-    result = net_start();
-    if (result != ESP_OK) {
-        ESP_LOGW(TAG, "network not started: %s", esp_err_to_name(result));
-    }
-    result = radio_ble_start();
-    if (result != ESP_OK) {
-        ESP_LOGW(TAG, "BLE advertisement not started: %s", esp_err_to_name(result));
     }
 
     // The UI/control task now owns event handling, link/power polling and deferred saves.
