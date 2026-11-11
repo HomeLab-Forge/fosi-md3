@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "eq.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_timer.h"
@@ -28,6 +29,8 @@ esp_err_t usb_ctl_init(void)
     return s_reply ? ESP_OK : ESP_ERR_NO_MEM;
 }
 
+static const char *const k_eq_state[4] = {"builtin", "custom", "fallback", "dsd"};
+
 static size_t info_json(char *out, size_t cap)
 {
     md3_snapshot_t s;
@@ -40,20 +43,20 @@ static size_t info_json(char *out, size_t cap)
     }
     const int n = snprintf(out, cap,
         "{\"firmware\":\"%s\",\"uptime_s\":%lld,\"screen\":\"%s\","
-        "\"clock\":{\"set\":%s,\"seconds\":%d},"
-        "\"sun\":{\"known\":%s,\"rise\":%d,\"set\":%d},"
         "\"storage\":{\"owner\":\"%s\",\"holds\":%lu,\"free\":%s,\"total\":%s},"
         "\"udisk_mode\":%s,\"dac_present\":%s,"
         "\"power\":{\"vbus_mv\":%d,\"charging\":%s},"
-        "\"settings\":{\"volume\":%d,\"filter\":%d,\"brightness\":%d},"
+        "\"settings\":{\"volume\":%d,\"gain_high\":%s,\"brightness\":%d},"
+        "\"eq\":{\"preset\":\"%s\",\"state\":\"%s\",\"group\":%d,"
+        "\"scale\":{\"log2_2x\":%d,\"log2_4x\":%d,\"trim_tenth_db\":%d}},"
         "\"link\":{\"rate\":\"%s\"}}",
         MD3_FW_VERSION, esp_timer_get_time() / 1000000, s.screen,
-        s.clock_set ? "true" : "false", s.clock_seconds,
-        s.sun_known ? "true" : "false", s.sun_rise, s.sun_set,
         s.storage_mounted ? "device" : "host", (unsigned long)s.storage_holds, free_text, total_text,
         s.settings.udisk_mode ? "true" : "false", s.dac_present ? "true" : "false",
         s.power_vbus_mv, s.power_charging ? "true" : "false",
-        s.settings.volume, s.settings.filter, s.settings.brightness,
+        s.settings.volume, s.settings.gain_high ? "true" : "false", s.settings.brightness,
+        eq_preset_name(s.eq.preset), k_eq_state[s.eq.state < 4 ? s.eq.state : 0], s.eq.group,
+        s.eq.log2_2x, s.eq.log2_4x, s.eq.trim_tenth_db,
         s.link.rate_label);
     return n < 0 ? 0 : (size_t)n < cap ? (size_t)n : cap - 1;
 }
@@ -115,16 +118,15 @@ static bool handle_out(tusb_control_request_t const *request)
 {
     const uint16_t v = request->wValue, i = request->wIndex;
     switch (request->bRequest) {
-    case MD3_CTL_TIME:
-        return v < 24 * 60 && i < 60 && post(EV_CLOCK, 0, 0, v * 60u + i);
     case MD3_CTL_KEY:
         return v <= KEY_VISTA && i <= PRESS_HOLD && post(EV_KEY, (md3_key_t)v, (md3_press_t)i, 0);
     case MD3_CTL_OFFER:
         return post(EV_OFFER, 0, 0, 0);
+    case MD3_CTL_EQ_SCALE:
+        return eq_scale_valid(v & 0xFF, v >> 8, (int16_t)i) &&
+               post(EV_EQ_SCALE, 0, 0, v | (uint32_t)i << 16);
     case MD3_CTL_ROM:
         return v == MD3_CTL_ROM_VALUE && i == MD3_CTL_ROM_INDEX && post(EV_ROM, 0, 0, 0);
-    case MD3_CTL_SUN:
-        return v < 24 * 60 && i < 24 * 60 && post(EV_SUN, 0, 0, v | (uint32_t)i << 16);
     default:
         return false;
     }

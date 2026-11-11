@@ -6,6 +6,7 @@ idf_component_register(
         "board.c"
         "settings.c"
         "dac.c"
+        "eq.c"
         "link.c"
         "storage.c"
         "usb_msc.c"
@@ -13,35 +14,25 @@ idf_component_register(
         "keys.c"
         "logbuf.c"
         "power.c"
-        "radio_ble.c"
         "ui.c"
-        "net.c"
     INCLUDE_DIRS "."
     REQUIRES
-        bt
         esp_adc
         esp_driver_gpio
         esp_driver_i2c
         esp_driver_ledc
         esp_driver_spi
-        esp_event
-        esp_http_server
         esp_lcd
-        esp_netif
         esp_partition
+        esp_pm
         esp_timer
-        esp_wifi
         fatfs
-        json
-        lwip
         nvs_flash
         wear_levelling
         espressif__button
-        espressif__esp_jpeg
         espressif__esp_lcd_gc9a01
         espressif__esp_lvgl_port
         espressif__esp_tinyusb
-        espressif__mdns
         espressif__tinyusb
         lvgl__lvgl
 )

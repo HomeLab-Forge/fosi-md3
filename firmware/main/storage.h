@@ -1,4 +1,4 @@
-// The photo/game volume: the stock wear-levelled FAT on the "storage" partition, mounted at
+// The Photo Sync volume (Photo1-3 and Game1-3 folders from the stock firmware): the stock wear-levelled FAT on the "storage" partition, mounted at
 // /disk and NEVER formatted (a failed mount leaves the volume untouched and reports an error).
 #pragma once
 
@@ -9,10 +9,7 @@
 #include "esp_err.h"
 
 #define STORAGE_ROOT     "/disk"
-#define STORAGE_FOLDERS  6
 #define STORAGE_MAX_FILE_BYTES (2 * 1024 * 1024)
-
-extern const char *const k_storage_folders[STORAGE_FOLDERS];  // Photo1-3, Game1-3
 
 /** Mount or reattach FAT/VFS without formatting. Keeps the WL handle alive across USB sessions. */
 esp_err_t storage_mount(void);
@@ -22,7 +19,8 @@ esp_err_t storage_unmount(void);
 bool storage_mounted(void);
 
 /** Reasons the volume stays local. A new local mount sets STORAGE_HOLD_REQUESTS; the UI clears it
- *  once pending host requests are checked. STORAGE_HOLD_ALBUM is set while the album is shown. */
+ *  once pending host requests are checked. STORAGE_HOLD_ALBUM was set while the album was shown;
+ *  the album is gone, so nothing sets it now, but usb_msc.c still honours it. */
 #define STORAGE_HOLD_REQUESTS (1U << 0)
 #define STORAGE_HOLD_ALBUM    (1U << 1)
 void storage_hold(uint32_t reason, bool on);
@@ -38,10 +36,6 @@ void storage_requests_checked(uint32_t generation);
  *  held or still in use. Never formats. */
 esp_err_t storage_release_to_host(int64_t idle_us);
 
-/** Displayable files (gif/jpg/jpeg) in folder index 0..5, in directory order. Caller frees with storage_free_list. */
-int storage_list(int folder, char ***names);
-void storage_free_list(char **names, int count);
-
 /** Read a whole file into PSRAM. Caller frees with free(). */
 esp_err_t storage_read(const char *path, uint8_t **data, size_t *len);
 
@@ -50,12 +44,6 @@ esp_err_t storage_write_file(const char *path, const uint8_t *data, size_t len);
 
 /** Delete one file on the locally mounted volume. */
 esp_err_t storage_remove(const char *path);
-
-/** True if name is a safe basename (no slashes, no dot-files, sane length). */
-bool storage_name_ok(const char *name);
-
-/** Folder index for a folder name, or -1. */
-int storage_folder_index(const char *name);
 
 /** Free and total bytes on the volume; ESP_ERR_INVALID_STATE while detached. */
 esp_err_t storage_usage(uint64_t *total, uint64_t *free_bytes);

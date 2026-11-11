@@ -1,4 +1,4 @@
-// Keeps the most recent log output in RAM so the USB LOG request and the network API (GET /api/v1/logs) can serve it.
+// Keeps the most recent log output in RAM so the USB LOG request can serve it.
 #pragma once
 
 #include <stddef.h>

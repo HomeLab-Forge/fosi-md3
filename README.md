@@ -9,7 +9,7 @@ next owner (or Fosi) can start where we stopped.
 **Status: archived, 2026-10-31.** The unit went back to the store with its factory flash
 restored and verified byte for byte. Nothing here has been tried on a second unit.
 
-![The open firmware's day-wheel](images/day-wheel.png)
+![The day-wheel of open firmware 0.2.4 (removed in 0.3.0)](images/day-wheel.png)
 
 ## The verdict
 
@@ -51,11 +51,15 @@ A from-scratch replacement for the ESP32-S3 app (ESP-IDF 5.5.1, LVGL 9.2) in `fi
 writes only the app partition at 0x10000 and keeps the audio path, the photo volume and the
 settings format.
 
-- Parity with stock: every sample rate and DSD, rate badge, volume, filters, gain, menus,
-  persistent settings, album, the three games, DAC/U-Disk switching.
-- Beyond stock: a 24-hour day-wheel clock with real sunrise and sunset arcs; a USB control
-  channel that works while the drive is mounted (status, clock, keys, 0.3 s screenshots, log);
-  20-second hands-free reflashing; a drive that comes back by itself after an eject.
+- 0.2.4, verified on the unit: parity with stock (every sample rate and DSD, rate badge, volume,
+  filters, gain, menus, persistent settings, album, the three games, DAC/U-Disk switching), plus
+  a 24-hour day-wheel clock, a USB control channel that works while the drive is mounted, 20-second
+  hands-free reflashing, and a drive that comes back by itself after an eject.
+- 0.3.0, built but **not run on hardware**: radios, album, games and clock removed; one status
+  screen (stream, EQ curve, volume ring) that stays dark until you press Menu and sleeps after
+  8 s; nine EQ presets on the DAC's programmable interpolation filter, with a coefficient scale
+  you calibrate by ear; 160 MHz with frequency scaling and an event-driven UI task. Hold Menu
+  with the screen on to switch DAC/U-Disk.
 - Not verified: power transitions.
 
 Build, flash, restore, and the control channel: [`docs/open-firmware.md`](docs/open-firmware.md).
