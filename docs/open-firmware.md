@@ -93,7 +93,7 @@ Drawn as in [`design/status-screen.html`](../design/status-screen.html), on blac
 
 - **Top:** the stream, from the Savitech link: "96 kHz PCM", "44.1 kHz PCM", "DSD128", or "no
   stream" while the link has reported no rate. The link carries no bit depth.
-- **Centre:** the current preset's frequency response from 200 Hz to 20 kHz on a log axis, 8 px
+- **Centre:** the current preset's frequency response from 200 Hz to 20 kHz on a log axis, 6 px
   per dB around a 0 dB line. The points are the response of the quantized coefficients, make-up
   included, computed by `tools/eq_design.py` for the current rate group: it is the filter the
   DAC is loaded with, assuming the coefficient scale is right. Flat draws a flat line (the
@@ -117,14 +117,14 @@ RAM for every sample rate, and DSD bypasses it.
 | # | Preset | What you hear, relative to Flat | Make-up |
 |---|--------|-------------------------------|---------|
 | 0 | Flat | The built-in filter F1 (FILTER_SHAPE 0, PROG_COEFF_EN 0) | - |
-| 1 | Bass+ | +3.5 dB below about 1 kHz | 3.5 dB |
-| 2 | Bass- | -3.5 dB below about 1 kHz | 0 |
-| 3 | Mid+ | +3 dB bell around 2 kHz (44.1/48 kHz only) | 3 dB |
-| 4 | Mid- | -3 dB bell around 2 kHz (44.1/48 kHz only) | 0 |
-| 5 | Treble+ | +3.5 dB shelf above about 5 kHz | 3.5 dB |
-| 6 | Treble- | -3.5 dB shelf above about 5 kHz | 0 |
-| 7 | Warm | Gentle tilt, -2 dB at 10 kHz from about 1 kHz | 0 |
-| 8 | Bright | +1.5 dB shelf from about 3 kHz | 1.5 dB |
+| 1 | Bass+ | +6 dB below about 1 kHz | 6 dB |
+| 2 | Bass- | -6 dB below about 1 kHz | 0 |
+| 3 | Mid+ | +5 dB bell around 2 kHz (44.1/48 kHz only) | 5 dB |
+| 4 | Mid- | -5 dB bell around 2 kHz (44.1/48 kHz only) | 0 |
+| 5 | Treble+ | +6 dB shelf above about 5 kHz | 6 dB |
+| 6 | Treble- | -6 dB shelf above about 5 kHz | 0 |
+| 7 | Warm | Downward tilt from about 1 kHz: -5 dB at 10 kHz, -6.5 dB at 20 kHz | 0 |
+| 8 | Bright | Upward tilt from about 1 kHz: +5 dB at 10 kHz, +6.5 dB at 20 kHz (the mirror of Warm) | 6.5 dB |
 
 How they are made:
 

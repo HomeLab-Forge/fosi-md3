@@ -52,8 +52,8 @@ static const char *TAG = "ui";
 #define CURVE_LEFT      36
 #define CURVE_RIGHT     204
 #define CURVE_MID       112
-#define CURVE_PX_PER_DB 8
-#define CURVE_MAX_DB    5
+#define CURVE_PX_PER_DB 6
+#define CURVE_MAX_DB    7
 
 static QueueHandle_t s_queue;
 static lv_display_t *s_disp;

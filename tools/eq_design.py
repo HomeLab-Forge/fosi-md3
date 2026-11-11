@@ -73,16 +73,18 @@ def tilt(f: float) -> float:
 
 # name, note shown on screen, makeup (0.5 dB steps), target in dB (peak 0 dB) or None for the built-in filter,
 # and whether the preset is allowed above the 44.1/48 kHz group at all.
+TILT_TOP = math.log10(20.0)  # tilt() at 20 kHz and above
+
 PRESETS = [
     ("Flat", "built-in filter F1", 0, None, True),
-    ("Bass+", "+3.5 dB below 1 kHz", 7, lambda f: -3.5 * shelf(f, 1000), True),
-    ("Bass-", "-3.5 dB below 1 kHz", 0, lambda f: -3.5 * (1 - shelf(f, 1000)), True),
-    ("Mid+", "+3 dB around 2 kHz", 6, lambda f: -3.0 + 3.0 * bell(f, 2000, 1.0), False),
-    ("Mid-", "-3 dB around 2 kHz", 0, lambda f: -3.0 * bell(f, 2000, 1.0), False),
-    ("Treble+", "+3.5 dB above 5 kHz", 7, lambda f: -3.5 * (1 - shelf(f, 5000)), True),
-    ("Treble-", "-3.5 dB above 5 kHz", 0, lambda f: -3.5 * shelf(f, 5000), True),
-    ("Warm", "-2 dB at 10 kHz", 0, lambda f: -2.0 * tilt(f), True),
-    ("Bright", "+1.5 dB from 3 kHz", 3, lambda f: -1.5 * (1 - shelf(f, 3500)), True),
+    ("Bass+", "+6 dB below 1 kHz", 12, lambda f: -6.0 * shelf(f, 1000), True),
+    ("Bass-", "-6 dB below 1 kHz", 0, lambda f: -6.0 * (1 - shelf(f, 1000)), True),
+    ("Mid+", "+5 dB around 2 kHz", 10, lambda f: -5.0 + 5.0 * bell(f, 2000, 1.0), False),
+    ("Mid-", "-5 dB around 2 kHz", 0, lambda f: -5.0 * bell(f, 2000, 1.0), False),
+    ("Treble+", "+6 dB above 5 kHz", 12, lambda f: -6.0 * (1 - shelf(f, 5000)), True),
+    ("Treble-", "-6 dB above 5 kHz", 0, lambda f: -6.0 * shelf(f, 5000), True),
+    ("Warm", "falls to -5 dB at 10 kHz", 0, lambda f: -5.0 * tilt(f), True),
+    ("Bright", "rises to +5 dB at 10 kHz", 13, lambda f: 5.0 * (tilt(f) - TILT_TOP), True),
 ]
 
 
