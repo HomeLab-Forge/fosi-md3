@@ -30,6 +30,21 @@ Version 0.3.2 is maintained and used daily on one MD3 as a DAC for an iPhone.
 - **Photo Sync** (U-Disk mode) works as before, and adds a USB control channel for status,
   screenshots, logs and hands-free reflashing.
 
+## Battery
+
+The MD3 has no battery of its own and runs from the phone. Measured on an iPhone with IEMs, from
+the share iOS gives "USB-C Accessories":
+
+| Firmware | Drain from the MD3 | About |
+|---|---|---|
+| Stock (Fosi) | ~11.3% of the phone battery per hour | 1.5-1.9 W |
+| md3fw 0.3.1 | ~6.6% per hour, about 40% less | 0.9-1.1 W |
+
+Most of the saving comes from the dark screen. Most of what is left is the USB audio bridge, the
+headphone amps and the power supplies, which have to run while music plays. 0.3.2 also saves
+power in silence: the DAC automutes and the amps power down. That part is not measured yet. The
+method, the caveats and the power budget per chip are in [`docs/power.md`](docs/power.md).
+
 ## Buttons
 
 | Button | Screen off | Screen on |
@@ -74,8 +89,6 @@ The exact commands, the udev rule, the EQ calibration and the way back to stock 
 
 - Charger in the pass-through port: before 0.3.2 the iPhone dropped the MD3 until it was
   replugged. 0.3.2 has a fix that is not yet tested.
-- Battery: about 6.6% of an iPhone's battery per hour on 0.3.1, down from about 11% on stock.
-  Most of what is left is hardware the firmware can't switch off while playing.
 - Host volume, brightness, rotation and UAC 1.0/2.0 have no control. Their saved values still
   apply; change them with the stock firmware.
 
@@ -85,6 +98,7 @@ The exact commands, the udev rule, the EQ calibration and the way back to stock 
 |------|----------|
 | `firmware/` | The ESP-IDF project (source only) |
 | `design/status-screen.html` | Interactive mock-up of the status screen |
+| `docs/power.md` | Battery measurements and the power budget per chip |
 | `docs/open-firmware.md` | md3fw: controls, EQ, control channel, build, flash, restore |
 | `docs/hardware.md`, `docs/stock-firmware.md`, `docs/savitech.md`, `docs/limits.md` | Reverse-engineering reference: chips, pin map, protocols, settings record, limits |
 | `docs/history.md` | How the original reverse engineering went |
