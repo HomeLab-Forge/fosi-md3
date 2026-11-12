@@ -1,4 +1,4 @@
-# md3fw 0.3.2
+# md3fw 0.3.3
 
 md3fw is a from-scratch replacement for the Fosi Audio MD3's ESP32-S3 app, in `firmware/`. ESP-IDF
 5.5.1 (the version the stock image was built with), LVGL 9.2.2, TinyUSB through `esp_tinyusb`. It is
@@ -12,6 +12,18 @@ and dumping are done from a Linux host.
 ![Status screen](../images/status-screen.png)
 
 *The status screen, rendered from [`design/status-screen.html`](../design/status-screen.html).*
+
+## What changed in 0.3.3
+
+- **Power estimate.** A small grey line above the dB value shows the estimated draw averaged
+  since plug-in, as "~0.84 W • 6.6 %/h" (% of an iPhone 15 Pro battery per hour). The firmware
+  counts the exact time with the screen on, the amps off, the DAC automuted and a stream present,
+  and multiplies by fixed figures; the watts are an estimate, about ±25%. See
+  [`power.md`](power.md#on-the-device). `md3ctl info` has the same numbers under `power_est`:
+  `avg_mw`, `mwh`, `pct_per_h_x10`, `elapsed_s` and the four time shares in %.
+- **`md3ctl log` on Linux.** It asked for 16383 bytes, and Linux refuses control reads over
+  4 KiB ("[Errno 22] Invalid parameter"). It now asks for 4096, the newest 4 KiB of the log, on
+  every host. The LOG request takes no offset.
 
 ## What changed in 0.3.2
 
@@ -75,6 +87,11 @@ itself after an eject.
 
 - **Battery.** About 11.3% of an iPhone's battery per hour on stock, 6.6% on 0.3.1. The 0.3.2 idle
   savings are not measured yet. See [`power.md`](power.md).
+- **Unplugging the charger interrupts playback on an iPhone.** Taking a charger out of the
+  pass-through port while playing from an iPhone stops the sound. On a computer host, which never
+  draws power from the MD3, nothing happens, so this is the phone swapping its USB power role and
+  the gap on VBUS while it does, not something the firmware can catch. Workaround: pause, unplug,
+  and press play again once the phone sees the DAC.
 
 ## Controls
 
@@ -111,11 +128,17 @@ Drawn as in [`design/status-screen.html`](../design/status-screen.html), on blac
   so the drawing leaves out only the small ripple. Flat draws a flat line (the
   built-in filter's own response is not modelled). The mock-up's impulse responses for the eight
   built-in filters were not carried over, since md3fw offers only F1.
-- **Below the curve:** the preset name and a note. "Flat at this rate" when the preset has no
+- **Below the curve:** the preset name (top at y 150) and a note (y 170). "Flat at this rate" when the preset has no
   coefficients for the stream's rate; on DSD the curve greys out and the note says "EQ not used
   on DSD".
+- **Power line (y 188):** in grey, the estimated draw averaged since plug-in and the share of an
+  iPhone 15 Pro battery it would use per hour: "~0.84 W • 6.6 %/h". The built-in fonts have no
+  "≈" or "·", so "~" and a bullet stand in. It updates while the screen is on; see
+  [`power.md`](power.md#on-the-device).
 - **Edge:** the device volume as an amber arc from 7 to 5 o'clock and its attenuation in dB at
-  the bottom (before host volume, gain and EQ make-up); "mute" at 0. "High Gain" or "Low Gain" sits
+  the bottom, top at y 204 (before host volume, gain and EQ make-up); "mute" at 0. The four lines
+  of the bottom block are centred, 4 px apart, and give way to the big value for 1.5 s after a
+  volume, gain or mode change. "High Gain" or "Low Gain" sits
   centred under the stream line. The 250 ms curve morph from the mock-up is not implemented.
 
 ## EQ presets
@@ -218,12 +241,12 @@ To make a calibrated scale the default for new units, change the initial values 
 
 | Request | Dir | Effect | `md3ctl.py` |
 |---------|-----|--------|-------------|
-| 0x01 INFO | IN | status JSON: firmware, screen ("status" or "off"), storage owner, mode, VBUS, settings, EQ preset/state/scale, link rate | `info` |
+| 0x01 INFO | IN | status JSON: firmware, screen ("status" or "off"), storage owner, mode, VBUS, power estimate (`power_est`), settings, EQ preset/state/scale, link rate | `info` |
 | 0x02 TIME | OUT | retired in 0.3.0 with the clock; stalls | - |
 | 0x03 KEY | OUT | wValue = key (vol_up, vol_down, menu, vista), wIndex = press (click, double, long, hold) | `key NAME [PRESS]` |
 | 0x04 SHOT | IN | capture the screen as a BMP; returns its size | `shot [PATH]` (0.3 s) |
 | 0x05 READ | IN | read the captured BMP at offset `(wIndex << 16) \| wValue` | (used by `shot`) |
-| 0x06 LOG | IN | the newest firmware log text | `log` |
+| 0x06 LOG | IN | the newest firmware log text, up to wLength bytes (no offset) | `log` (4 KiB) |
 | 0x07 OFFER | OUT | give a device-held volume back to the computer now | `offer` |
 | 0x08 ROM | OUT | reboot to ROM download mode (wValue 0x524D, wIndex 0x3344) | `rom` |
 | 0x09 SUN | OUT | retired in 0.3.0 with the clock; stalls | - |

@@ -8,7 +8,7 @@ ESP32-S3 inside runs the screen, the buttons and the ES9039Q2M DAC. md3fw replac
 ESP32. It writes only the app partition and keeps the audio path, the photo volume and the
 settings format, so the stock firmware can go back on at any time.
 
-Version 0.3.2 is maintained and used daily on one MD3 as a DAC for an iPhone.
+Version 0.3.3 is maintained and used daily on one MD3 as a DAC for an iPhone.
 
 ![The status screen: Warm preset at 44.1 kHz](images/status-screen.png)
 
@@ -17,7 +17,8 @@ Version 0.3.2 is maintained and used daily on one MD3 as a DAC for an iPhone.
 - **Audio as stock:** every sample rate and DSD, through the Savitech USB audio bridge. The
   volume uses the stock 101-step curve.
 - **One status screen:** the stream ("96 kHz PCM", "DSD128", "no stream"), "High Gain" or "Low
-  Gain", the EQ preset's curve, its name and a note, and the volume as a ring with its value in dB.
+  Gain", the EQ preset's curve, its name and a note, an estimate of the power drawn since plug-in
+  ("~0.84 W • 6.6 %/h" of an iPhone 15 Pro battery), and the volume as a ring with its value in dB.
   The screen stays dark until you press Menu and goes dark again 8 s after the last key.
 - **Nine EQ presets** on the DAC's programmable filter: Flat (the built-in filter), Bass+ and
   Bass- (±6 dB below 1 kHz), Mid+ and Mid- (±5 dB around 2 kHz, 44.1/48 kHz only), Treble+ and
@@ -89,6 +90,8 @@ The exact commands, the udev rule, the EQ calibration and the way back to stock 
 
 - Host volume, brightness, rotation and UAC 1.0/2.0 have no control. Their saved values still
   apply; change them with the stock firmware.
+- Unplugging a charger from the pass-through port interrupts playback on an iPhone (not on a
+  computer): the phone's USB power-role swap, outside the firmware. Pause, unplug, then play again.
 
 ## Layout
 

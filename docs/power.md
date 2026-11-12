@@ -69,6 +69,26 @@ The 0.3.2 changes only help while nothing plays: paused, between tracks, or plug
 forgotten. During playback the remaining 1 W or so is mostly the USB bridge, the amps' idle
 current and the power supplies, and firmware can't switch those off while playing.
 
+## On the device
+
+From 0.3.3 the status screen shows an estimate of the average draw since plug-in, and `md3ctl info`
+reports it under `power_est`. The firmware keeps the exact time since boot spent with the screen
+on, the amps off, the DAC automuted (or without a stream) and a stream present, and multiplies
+each by a fixed figure:
+
+| Part | mW |
+|---|---|
+| Fixed: USB bridge, ESP32, converters | 706 |
+| DAC playing / automuted | 54 / 15 |
+| Headphone amps on / off | 80 / 0 |
+| Screen on | 150 |
+
+The chip figures are from the datasheets above. The fixed part is calibrated so the model gives
+the iOS reading of 0.3.1, 6.6 %/h of an iPhone 15 Pro's 12.7 Wh while playing with the screen
+dark. The time shares are exact; the watts are modelled, about ±25%. %/h is the average in W
+divided by 12.7 Wh. It cannot see a part that draws more or less than its figure, such as the amp
+bias, so it checks the time shares against a measurement rather than replacing one.
+
 ## Still to measure
 
 - **0.3.2's drain, playing and paused,** read the same way from iOS.
