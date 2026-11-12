@@ -51,10 +51,10 @@ static const char *TAG = "ui";
 #define GC9A01_SLEEP_GAP_US (120 * 1000)      // GC9A01: 120 ms between sleep in and sleep out, both ways
 
 // Power estimate, mW. Datasheet figures per chip, plus a fixed part (USB bridge, ESP32, converters)
-// calibrated so the model gives the iOS reading of 0.3.1: 6.6 %/h of an iPhone 15 Pro's 12.7 Wh
-// while playing with the screen dark. The time in each state is exact; the watts are an estimate,
+// calibrated so the model gives the iOS reading of 0.3.2/0.3.3: 7.9 %/h of an iPhone 15 Pro's
+// 12.7 Wh while playing with the screen dark. The time in each state is exact; the watts are an estimate,
 // about +-25%.
-#define PWR_FIXED_MW      706
+#define PWR_FIXED_MW      870
 #define PWR_DAC_PLAY_MW   54    // DAC not automuted
 #define PWR_DAC_MUTE_MW   15    // DAC automuted (or no stream)
 #define PWR_AMPS_MW       80    // headphone amps on

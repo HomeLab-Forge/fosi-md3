@@ -7,28 +7,34 @@ the phone's battery. This page puts together what was measured and what the data
 
 The measurements come from one MD3 on an iPhone, with 3.5 mm IEMs at about -40 dB.
 
-| Firmware | MD3's share of the phone battery | Period | Drain from the MD3 |
+| Firmware | Battery used by the MD3 | Background time | Drain from the MD3 |
 |---|---|---|---|
-| Stock (Fosi, Mar 2026 build), screen always on | 34% of 105% used that day | 3 h 10 min | **about 11.3% per hour** |
-| md3fw 0.3.1, screen dark | 37% of 64% used by 09:21 | 3 h 36 min | **about 6.6% per hour** |
+| Stock (Fosi, Mar 2026 build), screen always on | 34% | 3 h 10 min | **about 10.7% per hour** |
+| md3fw 0.3.1, screen dark | 37% | 3 h 36 min | **about 10.3% per hour** |
+| md3fw 0.3.2 / 0.3.3, screen dark | 52% | 6 h 34 min | **about 7.9% per hour** |
 
-That is about **40% less** drain from the MD3. With an iPhone battery of 13-17 Wh, it works out to
-roughly 1.5-1.9 W on stock and 0.9-1.1 W on 0.3.1.
+On an iPhone 15 Pro (12.7 Wh) that is about 1.35 W on stock and about 1.0 W on 0.3.2/0.3.3:
+roughly **25% less**. 0.3.1 (dark screen, no radios, lower clock) made no difference worth the
+name; the drop came with 0.3.2.
 
 **How it was measured.** iOS lists the MD3 under Settings > Battery as "USB-C Accessories", with a
 background time.
-- **The percentage is a share.** It is the accessory's share of all the battery used in the
-  period, not a percentage of the battery's capacity.
-- **Converting it.** The drain is share × the period's total use ÷ the accessory's time. For
-  0.3.1 that is 37% × 64% ÷ 3.6 h.
-- **A cross-check.** The phone's own battery level, logged over the same morning, fell about 12%
-  per hour in total with its screen off. That leaves about 5.4% per hour for the phone itself,
-  which is plausible.
+- **The percentage is of the battery's capacity.** The items of one day add up to the day's
+  total, which can pass 100% when the phone was charged in between. It is not a share of the day's
+  use: an earlier version of this page read it that way and gave 11.3% and 6.6% per hour.
+- **Converting it.** The drain is the accessory's percentage ÷ its background time. For a period
+  inside one day, subtract the reading at its start: 0.3.2/0.3.3 is 89% at 19:40 minus 37% at
+  09:21, over 10 h 10 min minus 3 h 36 min.
+- **A cross-check.** The phone's own battery level, logged during an evening of listening with
+  both screens off, fell about 13% per hour in total. That leaves about 5% per hour for the phone
+  itself streaming, which is plausible.
 
 **Caveats.**
-- These are two days with different use, read from iOS's attribution, not a power meter.
-- The battery level comes in 5% steps.
-- md3fw 0.3.2's idle savings (below) have not been measured yet.
+- Three periods with different use, read from iOS's attribution, not a power meter.
+- The 0.3.2/0.3.3 period includes paused and connected-but-idle time, where its savings are
+  largest, so the playing-only drain is likely somewhat above 7.9% per hour.
+- The datasheet figures below account for about 0.1 W of the 0.3.2 saving, not 0.35 W. The rest
+  is not explained: the clock gearing may save more than its figure, or the mix of use differed.
 
 A published review measured the stock firmware on a Samsung S10+ at about 0.5% more battery per
 10 minutes than without the MD3, and about 0.35% with the MD3's screen off. That is roughly
@@ -65,9 +71,10 @@ fixed overhead.
 | 0.3.2 | DAC automute on after about 6 s of silence, outputs ramped to ground (stock: off) | 54 → 15 mW for the DAC in silence |
 | 0.3.2 | Headphone amps powered down after 30 s of silence or no stream | About 60-110 mW in silence |
 
-The 0.3.2 changes only help while nothing plays: paused, between tracks, or plugged in and
-forgotten. During playback the remaining 1 W or so is mostly the USB bridge, the amps' idle
-current and the power supplies, and firmware can't switch those off while playing.
+By the datasheets, the automute and the amps powering down only help while nothing plays:
+paused, between tracks, or plugged in and forgotten. During playback the remaining 1 W or so is
+mostly the USB bridge, the amps' idle current and the power supplies, and firmware can't switch
+those off while playing.
 
 ## On the device
 
@@ -78,18 +85,19 @@ each by a fixed figure:
 
 | Part | mW |
 |---|---|
-| Fixed: USB bridge, ESP32, converters | 706 |
+| Fixed: USB bridge, ESP32, converters | 870 |
 | DAC playing / automuted | 54 / 15 |
 | Headphone amps on / off | 80 / 0 |
 | Screen on | 150 |
 
 The chip figures are from the datasheets above. The fixed part is calibrated so the model gives
-the iOS reading of 0.3.1, 6.6 %/h of an iPhone 15 Pro's 12.7 Wh while playing with the screen
-dark. The time shares are exact; the watts are modelled, about ±25%. %/h is the average in W
+the iOS reading of 0.3.2/0.3.3, 7.9 %/h of an iPhone 15 Pro's 12.7 Wh while playing with the
+screen dark (0.3.3 used 706 mW, fitted to the misread 6.6 %/h). The time shares are exact; the watts are modelled, about ±25%. %/h is the average in W
 divided by 12.7 Wh. It cannot see a part that draws more or less than its figure, such as the amp
 bias, so it checks the time shares against a measurement rather than replacing one.
 
 ## Still to measure
 
-- **0.3.2's drain, playing and paused,** read the same way from iOS.
-- **The idle draw:** one hour connected and paused, screen off, on 0.3.1 against 0.3.2.
+- **Playing only against paused** on 0.3.2+, read the same way from iOS.
+- **Where the 0.3.2 saving during playback comes from,** if it is real: clock gearing alone, or
+  the mix of use.

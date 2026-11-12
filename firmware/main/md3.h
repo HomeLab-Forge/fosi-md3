@@ -10,7 +10,7 @@
 #include "link.h"
 #include "settings.h"
 
-#define MD3_FW_VERSION "md3fw 0.3.3"
+#define MD3_FW_VERSION "md3fw 0.3.4"
 
 typedef enum {
     KEY_VOL_UP,
