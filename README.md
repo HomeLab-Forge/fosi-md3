@@ -20,16 +20,53 @@ Version 0.3.3 is maintained and used daily on one MD3 as a DAC for an iPhone.
   Gain", the EQ preset's curve, its name and a note, an estimate of the power drawn since plug-in
   ("~0.84 W • 6.6 %/h" of an iPhone 15 Pro battery), and the volume as a ring with its value in dB.
   The screen stays dark until you press Menu, and goes dark on another Menu click or 8 s after the last key.
-- **Nine EQ presets** on the DAC's programmable filter: Flat (the built-in filter), Bass+ and
-  Bass- (±6 dB below 1 kHz), Mid+ and Mid- (±5 dB around 2 kHz, 44.1/48 kHz only), Treble+ and
-  Treble- (±6 dB above 5 kHz), Warm (tilts down to -5 dB at 10 kHz) and Bright (up to +5 dB).
-  DSD bypasses the EQ.
+- **Nine EQ presets** on the DAC's programmable filter (DSD bypasses the EQ):
+  - Flat: the DAC's built-in filter
+  - Bass+ / Bass-: ±6 dB below 1 kHz
+  - Mid+ / Mid-: ±5 dB around 2 kHz (44.1/48 kHz only)
+  - Treble+ / Treble-: ±6 dB above 5 kHz
+  - Warm: tilts down to -5 dB at 10 kHz
+  - Bright: tilts up to +5 dB at 10 kHz
 - **Gain:** High or Low. Low is 6 dB of digital attenuation, the same as stock.
 - **Lower power:** no Wi-Fi or Bluetooth, 160 MHz with frequency scaling down to 80 MHz, the
   screen and its UI stopped while dark, and in silence the DAC automutes and the headphone amps
   power down after 30 s.
+- **Charging pass-through:** plugging a charger into the MD3's second port keeps playback going.
+  Unplugging it interrupts playback on an iPhone; see Known issues.
 - **Photo Sync** (U-Disk mode) works as before, and adds a USB control channel for status,
   screenshots, logs and hands-free reflashing.
+
+## Changes from the stock firmware
+
+Each version is a [release](https://github.com/HomeLab-Forge/fosi-md3/releases) with its firmware
+file and notes.
+
+- **0.3.0**
+  - Wi-Fi and Bluetooth never start.
+  - Album, GIF/JPEG viewer, games, clock, dial and menus removed; one status screen instead.
+  - Screen dark until Menu: backlight off, panel asleep, UI stopped.
+  - 160 MHz with frequency scaling down to 80 MHz (stock: 240 MHz fixed). The UI wakes every
+    250 ms instead of every 40 ms.
+  - EQ presets on the DAC's programmable filter.
+  - The DAC filter register is written without clearing its reserved bits.
+- **0.3.1**
+  - Buttons: Menu toggles the screen and, held, switches DAC/U-Disk. Vista picks the preset and,
+    held, switches the gain.
+  - Stronger presets (±5-6 dB), Warm and Bright as mirrored tilts.
+  - Smooth preset curves on the screen; "High Gain" / "Low Gain" under the stream line.
+  - EQ level calibrated by ear, so presets match Flat's loudness.
+- **0.3.2**
+  - The DAC's automute and automatic clock gearing on (stock: off).
+  - Headphone amps powered down after 30 s of silence or no stream.
+  - Charger plug-in no longer restarts the audio chip, so playback keeps going.
+- **0.3.3**
+  - Power estimate on the screen and in `md3ctl info`.
+  - `md3ctl log` works on Linux.
+  - Image header version fixed.
+- **Host tools** (not firmware)
+  - Dump and flash from Linux: `catch_rom.py` finds the boot-window port by its USB id and waits
+    for udev's permissions.
+  - `tools/eq_design.py` designs the presets' filter coefficients.
 
 ## Battery
 
