@@ -75,10 +75,8 @@ itself after an eject.
 - **Charger in the pass-through port.** Before 0.3.2, plugging a charger in made an iPhone drop
   the MD3 until it was replugged. 0.3.2 skips the audio restart on a charge-state change; whether
   that is enough has not been tested yet.
-- **Battery.** iOS put the MD3 at about 11% of an iPhone's battery per hour on the stock firmware
-  and about 6.6% on 0.3.1 (Settings, Battery, "USB-C Accessories": its share times the day's
-  total). Most of the rest is the USB audio bridge and the power supplies, which firmware does not
-  control.
+- **Battery.** About 11.3% of an iPhone's battery per hour on stock, 6.6% on 0.3.1. The 0.3.2 idle
+  savings are not measured yet. See [`power.md`](power.md).
 
 ## Controls
 
