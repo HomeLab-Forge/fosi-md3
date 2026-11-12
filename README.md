@@ -8,7 +8,7 @@ ESP32-S3 inside runs the screen, the buttons and the ES9039Q2M DAC. md3fw replac
 ESP32. It writes only the app partition and keeps the audio path, the photo volume and the
 settings format, so the stock firmware can go back on at any time.
 
-Version 0.3.1 is maintained and used daily on one MD3 as a DAC for an iPhone.
+Version 0.3.2 is maintained and used daily on one MD3 as a DAC for an iPhone.
 
 ![The status screen: Warm preset at 44.1 kHz](images/status-screen.png)
 
@@ -25,7 +25,8 @@ Version 0.3.1 is maintained and used daily on one MD3 as a DAC for an iPhone.
   DSD bypasses the EQ.
 - **Gain:** High or Low. Low is 6 dB of digital attenuation, the same as stock.
 - **Lower power:** no Wi-Fi or Bluetooth, 160 MHz with frequency scaling down to 80 MHz, the
-  screen and its UI stopped while dark.
+  screen and its UI stopped while dark, and in silence the DAC automutes and the headphone amps
+  power down after 30 s.
 - **Photo Sync** (U-Disk mode) works as before, and adds a USB control channel for status,
   screenshots, logs and hands-free reflashing.
 
@@ -71,10 +72,10 @@ The exact commands, the udev rule, the EQ calibration and the way back to stock 
 
 ## Known issues
 
-- With a charger in the MD3's PD pass-through port, an iPhone does not see the MD3 as
-  headphones. The power-state code (`firmware/main/power.c`) mirrors the stock firmware and is
-  unchanged; the cause is under investigation.
-- The battery saving on the phone has not been measured.
+- Charger in the pass-through port: before 0.3.2 the iPhone dropped the MD3 until it was
+  replugged. 0.3.2 has a fix that is not yet tested.
+- Battery: about 6.6% of an iPhone's battery per hour on 0.3.1, down from about 11% on stock.
+  Most of what is left is hardware the firmware can't switch off while playing.
 - Host volume, brightness, rotation and UAC 1.0/2.0 have no control. Their saved values still
   apply; change them with the stock firmware.
 

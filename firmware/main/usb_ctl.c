@@ -44,7 +44,7 @@ static size_t info_json(char *out, size_t cap)
     const int n = snprintf(out, cap,
         "{\"firmware\":\"%s\",\"uptime_s\":%lld,\"screen\":\"%s\","
         "\"storage\":{\"owner\":\"%s\",\"holds\":%lu,\"free\":%s,\"total\":%s},"
-        "\"udisk_mode\":%s,\"dac_present\":%s,"
+        "\"udisk_mode\":%s,\"dac_present\":%s,\"amp_on\":%s,"
         "\"power\":{\"vbus_mv\":%d,\"charging\":%s},"
         "\"settings\":{\"volume\":%d,\"gain_high\":%s,\"brightness\":%d},"
         "\"eq\":{\"preset\":\"%s\",\"state\":\"%s\",\"group\":%d,"
@@ -52,7 +52,7 @@ static size_t info_json(char *out, size_t cap)
         "\"link\":{\"rate\":\"%s\"}}",
         MD3_FW_VERSION, esp_timer_get_time() / 1000000, s.screen,
         s.storage_mounted ? "device" : "host", (unsigned long)s.storage_holds, free_text, total_text,
-        s.settings.udisk_mode ? "true" : "false", s.dac_present ? "true" : "false",
+        s.settings.udisk_mode ? "true" : "false", s.dac_present ? "true" : "false", s.amp_on ? "true" : "false",
         s.power_vbus_mv, s.power_charging ? "true" : "false",
         s.settings.volume, s.settings.gain_high ? "true" : "false", s.settings.brightness,
         eq_preset_name(s.eq.preset), k_eq_state[s.eq.state < 4 ? s.eq.state : 0], s.eq.group,
