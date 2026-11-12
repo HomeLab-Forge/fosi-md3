@@ -39,3 +39,6 @@ int dac_volume_attenuation(void);
 void dac_invalidate(void);
 
 bool dac_present(void);
+
+/** True while both channels are automuted (reg 0xF2), i.e. the input has been silent for a few seconds. */
+bool dac_automuted(void);

@@ -66,6 +66,7 @@
         <button id="r96" type="button">96 kHz</button>
         <button id="dsd" type="button">DSD128</button>
         <button id="stop" type="button">No stream</button>
+        <button id="pause" type="button">Mostly paused</button>
       </div>
       <div class="state" id="state"></div>
     </div>
@@ -77,6 +78,7 @@
     <figure><div class="mini"><canvas data-state="gain" width="240" height="240"></canvas></div><figcaption><b>Front button held</b>The new gain shows big for 1.5 s.</figcaption></figure>
     <figure><div class="mini"><canvas data-state="dsd" width="240" height="240"></canvas></div><figcaption><b>DSD</b>The EQ isn't in the path, so the curve is greyed out.</figcaption></figure>
     <figure><div class="mini"><canvas data-state="vol" width="240" height="240"></canvas></div><figcaption><b>Volume change</b>The level shows big for 1.5 s.</figcaption></figure>
+    <figure><div class="mini"><canvas data-state="idle" width="240" height="240"></canvas></div><figcaption><b>Mostly paused</b>Bottom line: the average since plug-in drops as the amps spend time off.</figcaption></figure>
     <figure><div class="mini"><canvas data-state="off" width="240" height="240"></canvas></div><figcaption><b>Off</b>Backlight off, panel asleep, LVGL stopped.</figcaption></figure>
   </section>
 
@@ -95,7 +97,8 @@
       <tr><th>Top</th><td>The stream ("44.1 kHz PCM", "DSD128", "no stream"), and under it, centred and smaller, "High Gain" or "Low Gain".</td></tr>
       <tr><th>Centre</th><td>The preset's frequency response, 200 Hz to 20 kHz on a log axis, ±7 dB at 6 px per dB. These are the firmware's own curves: each preset's smooth target, which the real filter matches within 0.24 dB at 44.1/48 kHz.</td></tr>
       <tr><th>Under the curve</th><td>The preset's name and a short note ("+6 dB below 1 kHz").</td></tr>
-      <tr><th>Edge</th><td>Volume as an amber arc from 7 to 5 o'clock, with the dB value at the bottom.</td></tr>
+      <tr><th>Edge</th><td>Volume as an amber arc from 7 to 5 o'clock, with the dB value at the very bottom.</td></tr>
+      <tr><th>Above the dB</th><td>Estimated draw, averaged since plug-in, in watts and in % of an iPhone 15 Pro battery per hour. The firmware counts exact time in each state (screen, amps, DAC muted, stream) and multiplies by datasheet figures plus a fixed part for the USB bridge and converters, calibrated to the iOS measurement. An estimate, roughly ±25%.</td></tr>
       <tr><th>Sleep</th><td>Menu turns it off, or 8 s without a press does.</td></tr>
     </table></div>
     <p class="note">Gain is digital: Low is 6 dB of attenuation in the DAC, the same as the stock firmware.</p>
@@ -139,12 +142,23 @@
     if (s.hot) {
       text(g, s.hot, "600 28px 'IBM Plex Sans Condensed', sans-serif", COL.ring, 160);
     } else {
-      text(g, NAMES[s.idx], "600 16px 'IBM Plex Sans Condensed', sans-serif", live ? COL.label : COL.sub, 154);
-      text(g, s.dsd ? "EQ not used on DSD" : NOTES[s.idx], "400 14px 'IBM Plex Sans Condensed', sans-serif", COL.sub, 174);
-      text(g, db(att(s)), "500 14px 'IBM Plex Mono', monospace", COL.ring, 200);
+      text(g, NAMES[s.idx], "600 16px 'IBM Plex Sans Condensed', sans-serif", live ? COL.label : COL.sub, 150);
+      text(g, s.dsd ? "EQ not used on DSD" : NOTES[s.idx], "400 14px 'IBM Plex Sans Condensed', sans-serif", COL.sub, 170);
+      text(g, db(att(s)), "500 14px 'IBM Plex Mono', monospace", COL.ring, 204);
+      const p = power(s);
+      text(g, "\u2248" + p.w.toFixed(2) + " W  \u00b7  " + p.pct.toFixed(1) + " %/h", "400 12px 'IBM Plex Sans Condensed', sans-serif", COL.sub, 188);
     }
   }
 
+  // Power estimate (average since plug-in), as the firmware would keep it: time in each state times
+  // a datasheet figure, plus a fixed part calibrated to the iOS reading of 0.3.1 (6.6 %/h of an
+  // iPhone 15 Pro's 12.7 Wh while playing with the screen dark). Shares here are example values.
+  const PW = { fixed: 0.706, dacPlay: 0.054, dacMute: 0.015, amps: 0.080, screen: 0.15, wh: 12.7 };
+  function power(s) {
+    const mute = s.paused ? 0.9 : 0.05, ampOff = s.paused ? 0.8 : 0, scr = 0.03;
+    const w = PW.fixed + PW.dacPlay * (1 - mute) + PW.dacMute * mute + PW.amps * (1 - ampOff) + PW.screen * scr;
+    return { w, pct: 100 * w / PW.wh };
+  }
   const base = { idx: 0, vol: 62, rate: "44.1", dsd: false, gain: true };
   const fixed = {
     flat: { ...base },
@@ -152,6 +166,7 @@
     gain: { ...base, idx: 7, gain: false, hot: "Low Gain" },
     dsd: { ...base, idx: 1, dsd: true, rate: null },
     vol: { ...base, idx: 5, vol: 74, hot: db(Math.round(26 * 1.2)) },
+    idle: { ...base, idx: 7, paused: true },
     off: { off: true },
   };
   const paint = () => document.querySelectorAll("canvas[data-state]").forEach(c => draw(c, fixed[c.dataset.state]));
@@ -178,6 +193,7 @@
   on("r96", () => rate("96", false));
   on("dsd", () => rate(null, true));
   on("stop", () => rate(null, false));
+  on("pause", () => { s.paused = !s.paused; });
 
   const start = () => { paint(); render(); arm(); };
   (document.fonts && document.fonts.ready ? document.fonts.ready : Promise.resolve()).then(start);

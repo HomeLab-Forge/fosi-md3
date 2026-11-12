@@ -42,11 +42,24 @@ static const char *TAG = "ui";
 #define HOT_MS          1500                  // the big dB value after a volume change
 #define AWAKE_US        (8 * 1000 * 1000)     // no key for this long: screen off
 #define HOUSEKEEPING_MS 250                   // VBUS, deferred saves, drive return, sleep timer, link fallback
+#define AMP_IDLE_US     (30 * 1000000LL)      // automuted this long: headphone amps off
+#define AMP_POLL_MS     20                    // automute poll while the amps are off, so sound returns quickly
 #define GC9A01_SLPIN    0x10
 #define GC9A01_SLPOUT   0x11
 #define GC9A01_DISPOFF  0x28
 #define GC9A01_DISPON   0x29
 #define GC9A01_SLEEP_GAP_US (120 * 1000)      // GC9A01: 120 ms between sleep in and sleep out, both ways
+
+// Power estimate, mW. Datasheet figures per chip, plus a fixed part (USB bridge, ESP32, converters)
+// calibrated so the model gives the iOS reading of 0.3.1: 6.6 %/h of an iPhone 15 Pro's 12.7 Wh
+// while playing with the screen dark. The time in each state is exact; the watts are an estimate,
+// about +-25%.
+#define PWR_FIXED_MW      706
+#define PWR_DAC_PLAY_MW   54    // DAC not automuted
+#define PWR_DAC_MUTE_MW   15    // DAC automuted (or no stream)
+#define PWR_AMPS_MW       80    // headphone amps on
+#define PWR_SCREEN_MW     150   // backlight and panel on
+#define PWR_BATTERY_MWH   12700 // iPhone 15 Pro
 
 // Curve box: 200 Hz..20 kHz on a log axis from x 36 to 204, 0 dB at y 112, 8 px per dB.
 #define CURVE_LEFT      36
@@ -65,13 +78,20 @@ static int64_t s_last_hold_us;
 // Wake and sleep. The screen is dark (backlight 0, panel in sleep, LVGL stopped) unless Menu woke it.
 static bool s_awake;
 static int64_t s_last_key_us;
+static bool s_amp_off;
+static int64_t s_muted_since;   // 0 = not automuted
+static uint32_t s_amp_resets;   // dac_reset_count() when the amps were last switched
 static int64_t s_panel_toggle_us;     // last sleep-in or sleep-out
+static bool s_dac_muted = true;       // what amp_idle_tick last saw: automuted or no stream
+
+// Time in each state since boot, us; account_power() adds the time since the last call.
+static int64_t s_acct_us, s_acct_screen_us, s_acct_amp_off_us, s_acct_muted_us, s_acct_stream_us;
 
 // Work that talks to the DAC for long; done by the UI task after it lets go of the LVGL lock.
 static bool s_pending_eq;
 static bool s_pending_power_cycle;
 
-static lv_obj_t *s_scr, *s_arc, *s_stream, *s_gain, *s_grid, *s_curve, *s_name, *s_note, *s_db, *s_big;
+static lv_obj_t *s_scr, *s_arc, *s_stream, *s_gain, *s_grid, *s_curve, *s_name, *s_note, *s_power, *s_db, *s_big;
 static lv_point_precise_t s_grid_points[2];
 static lv_point_precise_t *s_curve_points;
 static lv_timer_t *s_hot_timer;
@@ -89,6 +109,50 @@ bool md3_post(const md3_event_t *ev)
 
 static const int k_brightness_pct[5] = {20, 40, 60, 80, 100};
 
+// Call before any of the states it counts changes, so the time so far goes to the old state.
+static void account_power(void)
+{
+    const int64_t now = esp_timer_get_time();
+    const int64_t dt = now - s_acct_us;
+    s_acct_us = now;
+    if (dt <= 0) {
+        return;
+    }
+    if (s_awake) {
+        s_acct_screen_us += dt;
+    }
+    if (s_amp_off) {
+        s_acct_amp_off_us += dt;
+    }
+    if (s_dac_muted) {
+        s_acct_muted_us += dt;
+    }
+    if (g_link.rate_hz) {
+        s_acct_stream_us += dt;
+    }
+}
+
+static void power_estimate(md3_power_est_t *out)
+{
+    account_power();
+    const int64_t t = s_acct_us > 0 ? s_acct_us : 1;
+    // mW x us = nJ
+    const int64_t nj = PWR_FIXED_MW * t
+                     + PWR_DAC_PLAY_MW * (t - s_acct_muted_us) + PWR_DAC_MUTE_MW * s_acct_muted_us
+                     + PWR_AMPS_MW * (t - s_acct_amp_off_us)
+                     + PWR_SCREEN_MW * s_acct_screen_us;
+    *out = (md3_power_est_t){
+        .avg_mw = (uint32_t)((nj + t / 2) / t),
+        .mwh = (uint32_t)(nj / 3600000000LL),
+        .elapsed_s = (uint32_t)(t / 1000000),
+        .screen_on_pct = (uint8_t)(s_acct_screen_us * 100 / t),
+        .amp_off_pct = (uint8_t)(s_acct_amp_off_us * 100 / t),
+        .muted_pct = (uint8_t)(s_acct_muted_us * 100 / t),
+        .stream_pct = (uint8_t)(s_acct_stream_us * 100 / t),
+    };
+    out->pct_per_h_x10 = (out->avg_mw * 1000 + PWR_BATTERY_MWH / 2) / PWR_BATTERY_MWH;  // %/h x10
+}
+
 static void publish_state(void)
 {
     const int64_t now = esp_timer_get_time();
@@ -102,6 +166,7 @@ static void publish_state(void)
         .link = g_link,
         .eq = eq_status(),
         .dac_present = dac_present(),
+        .amp_on = !s_amp_off,
         .power_vbus_mv = power_vbus_mv(),
         .power_charging = power_charging(),
         .storage_mounted = storage_mounted(),
@@ -109,6 +174,7 @@ static void publish_state(void)
         .storage_free = s_storage_free,
         .storage_holds = storage_holds(),
     };
+    power_estimate(&snapshot.power_est);
     strlcpy(snapshot.screen, ui_screen_name(), sizeof(snapshot.screen));
     md3_state_publish(&snapshot);
 }
@@ -194,11 +260,30 @@ static void refresh_volume(void)
     lv_label_set_text(s_gain, g_settings.gain_high ? "High Gain" : "Low Gain");
 }
 
+// The montserrat built-ins hold ASCII, the degree sign and the bullet (U+2022) only: no
+// approximately-equal sign or middle dot, so "~" and the bullet stand in for them.
+static void refresh_power(void)
+{
+    static char shown[48];
+    md3_power_est_t p;
+    power_estimate(&p);
+    const uint32_t cw = (p.avg_mw + 5) / 10;  // centiwatts
+    char buf[48];
+    snprintf(buf, sizeof(buf), "~%lu.%02lu W  \xe2\x80\xa2  %lu.%lu %%/h", (unsigned long)(cw / 100),
+             (unsigned long)(cw % 100), (unsigned long)(p.pct_per_h_x10 / 10),
+             (unsigned long)(p.pct_per_h_x10 % 10));
+    if (strcmp(buf, shown)) {
+        strlcpy(shown, buf, sizeof(shown));
+        lv_label_set_text(s_power, buf);
+    }
+}
+
 static void refresh_all(void)
 {
     refresh_stream();
     refresh_eq();
     refresh_volume();
+    refresh_power();
 }
 
 // While "hot" the big value replaces the preset name, note and small dB, and the ring brightens.
@@ -207,6 +292,7 @@ static void set_hot(bool hot)
     lv_obj_update_flag(s_big, LV_OBJ_FLAG_HIDDEN, !hot);
     lv_obj_update_flag(s_name, LV_OBJ_FLAG_HIDDEN, hot);
     lv_obj_update_flag(s_note, LV_OBJ_FLAG_HIDDEN, hot);
+    lv_obj_update_flag(s_power, LV_OBJ_FLAG_HIDDEN, hot);
     lv_obj_update_flag(s_db, LV_OBJ_FLAG_HIDDEN, hot);
     lv_obj_set_style_arc_opa(s_arc, hot ? LV_OPA_COVER : LV_OPA_80, LV_PART_INDICATOR);
 }
@@ -265,9 +351,11 @@ static void build_screen(void)
     lv_obj_set_style_line_rounded(s_curve, true, 0);
     lv_obj_set_pos(s_curve, 0, 0);
 
-    s_name = add_label(&lv_font_montserrat_16, COLOR_LABEL, 154);
-    s_note = add_label(&lv_font_montserrat_14, COLOR_SUB, 174);
-    s_db = add_label(&lv_font_montserrat_14, COLOR_RING, 200);
+    // Bottom block: four centred lines, 4 px apart.
+    s_name = add_label(&lv_font_montserrat_16, COLOR_LABEL, 150);
+    s_note = add_label(&lv_font_montserrat_14, COLOR_SUB, 170);
+    s_power = add_label(&lv_font_montserrat_12, COLOR_SUB, 188);
+    s_db = add_label(&lv_font_montserrat_14, COLOR_RING, 204);
     s_big = add_label(&lv_font_montserrat_28, COLOR_RING, 160);
     lv_obj_add_flag(s_big, LV_OBJ_FLAG_HIDDEN);
 
@@ -316,6 +404,7 @@ static void screen_wake(void)
     if (s_cpu_lock) {
         esp_pm_lock_acquire(s_cpu_lock);
     }
+    account_power();
     s_awake = true;
     s_last_key_us = esp_timer_get_time();
     ESP_LOGI(TAG, "screen on");
@@ -338,6 +427,7 @@ static void screen_sleep(void)
     panel_cmd(GC9A01_DISPOFF);
     panel_cmd(GC9A01_SLPIN);
     s_panel_toggle_us = esp_timer_get_time();
+    account_power();
     s_awake = false;
     ESP_LOGI(TAG, "screen off");
 }
@@ -650,9 +740,44 @@ static void offer_volume(void)
 
 static void poll_link(void)
 {
+    account_power();  // the stream share changes with g_link
     if (link_poll(&g_link)) {
         md3_event_t ev = {.type = EV_LINK};
         process_event(&ev);
+    }
+}
+
+// The DAC automutes a few seconds into silence; after AMP_IDLE_US of that (or of no stream) the
+// headphone amps power down, and they come back as soon as the automute clears. A DAC power cycle turns them on itself.
+static void amp_idle_tick(void)
+{
+    account_power();
+    if (dac_reset_count() != s_amp_resets) {
+        s_amp_resets = dac_reset_count();
+        s_amp_off = false;
+        s_muted_since = 0;
+    }
+    if (g_settings.udisk_mode || !dac_present()) {
+        s_dac_muted = true;  // no audio path
+        return;
+    }
+    // No stream at all counts as silence too: without clocks the automute flag may never rise.
+    const bool muted = !g_link.rate_hz || dac_automuted();
+    s_dac_muted = muted;
+    const int64_t now = esp_timer_get_time();
+    if (!muted) {
+        s_muted_since = 0;
+        if (s_amp_off) {
+            board_amp_set(true);
+            s_amp_off = false;
+            ESP_LOGI(TAG, "amps on");
+        }
+    } else if (!s_muted_since) {
+        s_muted_since = now;
+    } else if (!s_amp_off && now - s_muted_since >= AMP_IDLE_US) {
+        board_amp_set(false);
+        s_amp_off = true;
+        ESP_LOGI(TAG, "amps off after %lld s of automute", AMP_IDLE_US / 1000000);
     }
 }
 
@@ -671,14 +796,18 @@ static void housekeeping(void)
     }
     return_idle_volume();
     poll_link();  // fallback; the link's ISR normally wakes the task at once
-    if (power_tick()) {
-        if (audio_power_cycle() != ESP_OK) {
-            ESP_LOGW(TAG, "DAC not ready after power change");
-        }
-    }
+    // A charge-state change only moves the "usb src" line (power_tick() does that). The stock
+    // firmware also reran the audio power-on here, which reset the Savitech and made the phone
+    // drop the DAC whenever a charger went into the pass-through port.
+    (void)power_tick();
     eq_apply();  // cheap when nothing changed; reloads after any DAC reset (power cycle, mode switch)
-    if (s_awake && esp_timer_get_time() - s_last_key_us >= AWAKE_US && lvgl_port_lock(0)) {
-        screen_sleep();
+    amp_idle_tick();
+    if (s_awake && lvgl_port_lock(0)) {
+        if (esp_timer_get_time() - s_last_key_us >= AWAKE_US) {
+            screen_sleep();
+        } else {
+            refresh_power();  // only redraws when the text changes
+        }
         lvgl_port_unlock();
     }
     settings_tick();
@@ -709,8 +838,12 @@ static void ui_task(void *arg)
     for (;;) {
         const TickType_t period = pdMS_TO_TICKS(HOUSEKEEPING_MS);
         const TickType_t elapsed = xTaskGetTickCount() - last_housekeeping;
+        TickType_t wait = elapsed < period ? period - elapsed : 0;
+        if (s_amp_off && wait > pdMS_TO_TICKS(AMP_POLL_MS)) {
+            wait = pdMS_TO_TICKS(AMP_POLL_MS);
+        }
         md3_event_t ev = {0};
-        if (xQueueReceive(s_queue, &ev, elapsed < period ? period - elapsed : 0) == pdTRUE) {
+        if (xQueueReceive(s_queue, &ev, wait) == pdTRUE) {
             if (ev.type == EV_LINK) {
                 s_link_signalled = false;  // cleared before reading, so a write during the read re-signals
                 poll_link();
@@ -725,6 +858,8 @@ static void ui_task(void *arg)
         if (xTaskGetTickCount() - last_housekeeping >= period) {
             last_housekeeping = xTaskGetTickCount();
             housekeeping();
+        } else if (s_amp_off) {
+            amp_idle_tick();
         }
     }
 }
@@ -758,6 +893,7 @@ esp_err_t ui_init(esp_lcd_panel_io_handle_t io, esp_lcd_panel_handle_t panel)
     build_screen();
     apply_rotation();
     // Start dark: board_lcd_init() left the panel awake with the backlight at 0.
+    account_power();  // the time before this counts as dark
     s_awake = true;
     s_panel_toggle_us = esp_timer_get_time();
     screen_sleep();

@@ -32,11 +32,19 @@ static const char *TAG = "dac";
 // The volume ramps to the new attenuation at DAC_VOL_RATE_DOWN (reset value 4, about 23 ms for the
 // full range at 44.1 kHz); wait a little longer before touching the filter.
 #define MUTE_RAMP_MS    60
+#define REG_AUTOMUTE_READ 0xF2  // [1] ch2, [0] ch1: automute active
 
-// Init pairs copied from the stock firmware (DRAM 0x3fc99b18), written in this order.
+// Init pairs from the stock firmware (DRAM 0x3fc99b18), written in this order, with two power
+// changes. The stock firmware wrote 0x00 to all of these:
+// - 0x05: automatic clock gearing on, down to MCLK/8 but never below 128 FS (the datasheet's power
+//   figures assume it).
+// - 0x7B-0x7D: automute on for both channels after the slowest timeout (2^18 / FS, about 6 s at
+//   44.1 kHz), ramping to ground while muted (15 mW instead of 54 mW, datasheet p.52-53). Any
+//   signal above -117.5 dB clears it at once. ui.c powers the headphone amps down after a longer
+//   automute.
 static const uint8_t k_init[][2] = {
-    {0x01, 0xB7}, {0x05, 0x00}, {0x1D, 0x40}, {0x40, 0x00}, {0x41, 0x21},
-    {0x39, 0x41}, {0x7B, 0x00}, {0x7D, 0x00}, {0x7C, 0x00}, {0x00, 0x02},
+    {0x01, 0xB7}, {0x05, 0x34}, {0x1D, 0x40}, {0x40, 0x00}, {0x41, 0x21},
+    {0x39, 0x41}, {0x7B, 0x03}, {0x7D, 0x08}, {0x7C, 0x01}, {0x00, 0x02},
 };
 
 // Stock 101-step volume curve (DROM 0x3c093d00): attenuation in 0.5 dB units, 0xFF = mute.
@@ -289,4 +297,10 @@ void dac_invalidate(void)
 bool dac_present(void)
 {
     return s_present;
+}
+
+bool dac_automuted(void)
+{
+    uint8_t v = 0;
+    return s_present && read_reg(REG_AUTOMUTE_READ, &v) == ESP_OK && (v & 0x03) == 0x03;
 }

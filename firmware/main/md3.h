@@ -10,7 +10,7 @@
 #include "link.h"
 #include "settings.h"
 
-#define MD3_FW_VERSION "md3fw 0.3.1"
+#define MD3_FW_VERSION "md3fw 0.3.3"
 
 typedef enum {
     KEY_VOL_UP,
@@ -44,14 +44,28 @@ typedef struct {
 /** Queue an event for the UI task; false if the queue is absent or full. */
 bool md3_post(const md3_event_t *ev);
 
+/** Power estimate, averaged since boot: exact time shares, modelled watts (ui.c). */
+typedef struct {
+    uint32_t avg_mw;
+    uint32_t mwh;
+    uint32_t pct_per_h_x10;   // % of an iPhone 15 Pro battery per hour, x10
+    uint32_t elapsed_s;
+    uint8_t screen_on_pct;
+    uint8_t amp_off_pct;
+    uint8_t muted_pct;
+    uint8_t stream_pct;
+} md3_power_est_t;
+
 /** A coherent status copy. The UI task publishes; USB control readers never touch live backends. */
 typedef struct {
     md3_settings_t settings;
     link_state_t link;
     eq_status_t eq;
     bool dac_present;
+    bool amp_on;
     int power_vbus_mv;
     bool power_charging;
+    md3_power_est_t power_est;
     bool storage_mounted;
     uint64_t storage_total;
     uint64_t storage_free;

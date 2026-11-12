@@ -44,16 +44,21 @@ static size_t info_json(char *out, size_t cap)
     const int n = snprintf(out, cap,
         "{\"firmware\":\"%s\",\"uptime_s\":%lld,\"screen\":\"%s\","
         "\"storage\":{\"owner\":\"%s\",\"holds\":%lu,\"free\":%s,\"total\":%s},"
-        "\"udisk_mode\":%s,\"dac_present\":%s,"
+        "\"udisk_mode\":%s,\"dac_present\":%s,\"amp_on\":%s,"
         "\"power\":{\"vbus_mv\":%d,\"charging\":%s},"
+        "\"power_est\":{\"avg_mw\":%lu,\"mwh\":%lu,\"pct_per_h_x10\":%lu,\"elapsed_s\":%lu,"
+        "\"screen_on_pct\":%u,\"amp_off_pct\":%u,\"muted_pct\":%u,\"stream_pct\":%u},"
         "\"settings\":{\"volume\":%d,\"gain_high\":%s,\"brightness\":%d},"
         "\"eq\":{\"preset\":\"%s\",\"state\":\"%s\",\"group\":%d,"
         "\"scale\":{\"log2_2x\":%d,\"log2_4x\":%d,\"trim_tenth_db\":%d}},"
         "\"link\":{\"rate\":\"%s\"}}",
         MD3_FW_VERSION, esp_timer_get_time() / 1000000, s.screen,
         s.storage_mounted ? "device" : "host", (unsigned long)s.storage_holds, free_text, total_text,
-        s.settings.udisk_mode ? "true" : "false", s.dac_present ? "true" : "false",
+        s.settings.udisk_mode ? "true" : "false", s.dac_present ? "true" : "false", s.amp_on ? "true" : "false",
         s.power_vbus_mv, s.power_charging ? "true" : "false",
+        (unsigned long)s.power_est.avg_mw, (unsigned long)s.power_est.mwh,
+        (unsigned long)s.power_est.pct_per_h_x10, (unsigned long)s.power_est.elapsed_s,
+        s.power_est.screen_on_pct, s.power_est.amp_off_pct, s.power_est.muted_pct, s.power_est.stream_pct,
         s.settings.volume, s.settings.gain_high ? "true" : "false", s.settings.brightness,
         eq_preset_name(s.eq.preset), k_eq_state[s.eq.state < 4 ? s.eq.state : 0], s.eq.group,
         s.eq.log2_2x, s.eq.log2_4x, s.eq.trim_tenth_db,
