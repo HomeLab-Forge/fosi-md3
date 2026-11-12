@@ -146,7 +146,7 @@
       text(g, s.dsd ? "EQ not used on DSD" : NOTES[s.idx], "400 14px 'IBM Plex Sans Condensed', sans-serif", COL.sub, 170);
       text(g, db(att(s)), "500 14px 'IBM Plex Mono', monospace", COL.ring, 204);
       const p = power(s);
-      text(g, "\u2248" + p.w.toFixed(2) + " W  \u00b7  " + p.pct.toFixed(1) + " %/h", "400 12px 'IBM Plex Sans Condensed', sans-serif", COL.sub, 188);
+      text(g, "~" + p.w.toFixed(2) + " W  \u2022  " + p.pct.toFixed(1) + " %/h", "400 12px 'IBM Plex Sans Condensed', sans-serif", COL.sub, 188);
     }
   }
 
