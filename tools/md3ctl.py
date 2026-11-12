@@ -39,6 +39,7 @@ ROM_VALUE, ROM_INDEX = 0x524D, 0x3344
 KEYS = {"vol_up": 0, "vol_down": 1, "menu": 2, "vista": 3}
 PRESSES = {"click": 0, "double": 1, "long": 2, "hold": 3}
 CHUNK = 32 * 1024
+LOG_BYTES = 4096  # the most a Linux host may ask for in one control read
 TIMEOUT_MS = 3000
 MEDIA_NAME = "Fosi Audio MD3"
 _volume_cache: dict[str, str] = {}
@@ -119,7 +120,9 @@ def shot(path: Path | None = None, dev=None) -> Path:
 
 
 def log(dev=None) -> str:
-    return _in(LOG, 16383, dev=dev).decode(errors="replace")
+    """The newest LOG_BYTES of the log. LOG takes no offset (it returns the newest wLength bytes),
+    and Linux usbfs refuses control reads over 4 KiB with EINVAL, so one 4 KiB read covers both."""
+    return _in(LOG, LOG_BYTES, dev=dev).decode(errors="replace")
 
 
 def offer(dev=None) -> None:
