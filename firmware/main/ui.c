@@ -671,11 +671,10 @@ static void housekeeping(void)
     }
     return_idle_volume();
     poll_link();  // fallback; the link's ISR normally wakes the task at once
-    if (power_tick()) {
-        if (audio_power_cycle() != ESP_OK) {
-            ESP_LOGW(TAG, "DAC not ready after power change");
-        }
-    }
+    // A charge-state change only moves the "usb src" line (power_tick() does that). The stock
+    // firmware also reran the audio power-on here, which reset the Savitech and made the phone
+    // drop the DAC whenever a charger went into the pass-through port.
+    (void)power_tick();
     eq_apply();  // cheap when nothing changed; reloads after any DAC reset (power cycle, mode switch)
     if (s_awake && esp_timer_get_time() - s_last_key_us >= AWAKE_US && lvgl_port_lock(0)) {
         screen_sleep();
