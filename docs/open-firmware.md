@@ -22,7 +22,8 @@ and dumping are done from a Linux host.
   the automute is then polled every 20 ms; the amps come back as soon as sound does. The first
   few tens of milliseconds after a long silence may be lost. `md3ctl info` shows `amp_on`.
 - **Charger in the pass-through port.** A charge-state change only moves the "usb src" line. It
-  no longer reruns the audio power-on, whose Savitech reset made the phone drop the DAC.
+  no longer reruns the audio power-on, whose Savitech reset made the phone drop the DAC. Checked
+  on the unit: plugging a charger in keeps playback going without interruption.
 
 ## What changed in 0.3.1
 
@@ -72,9 +73,6 @@ itself after an eject.
 
 ## Known issues
 
-- **Charger in the pass-through port.** Before 0.3.2, plugging a charger in made an iPhone drop
-  the MD3 until it was replugged. 0.3.2 skips the audio restart on a charge-state change; whether
-  that is enough has not been tested yet.
 - **Battery.** About 11.3% of an iPhone's battery per hour on stock, 6.6% on 0.3.1. The 0.3.2 idle
   savings are not measured yet. See [`power.md`](power.md).
 

@@ -87,8 +87,6 @@ The exact commands, the udev rule, the EQ calibration and the way back to stock 
 
 ## Known issues
 
-- Charger in the pass-through port: before 0.3.2 the iPhone dropped the MD3 until it was
-  replugged. 0.3.2 has a fix that is not yet tested.
 - Host volume, brightness, rotation and UAC 1.0/2.0 have no control. Their saved values still
   apply; change them with the stock firmware.
 
