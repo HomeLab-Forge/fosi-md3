@@ -53,6 +53,11 @@ void board_gpio_init(void)
     vTaskDelay(1);
 }
 
+void board_amp_set(bool on)
+{
+    gpio_set_level(PIN_AMP_EN, on);
+}
+
 bool board_vista_held(void)
 {
     return gpio_get_level(PIN_KEY_VISTA) == 0;

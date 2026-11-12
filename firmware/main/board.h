@@ -57,6 +57,10 @@ void board_gpio_init(void);
 /** True when the Vista key is held (stock "IAP" check: hold Vista at plug-in to stay flashable). */
 bool board_vista_held(void);
 
+/** Headphone amps on or off: GPIO17, taken to be the four ES9603Qs' AMP_PDB (active-low power-down,
+ *  pop-free, < 5 uA off). board_audio_power_finish() turns them on. */
+void board_amp_set(bool on);
+
 /** Route the USB-C data lines: true = Savitech (audio), false = ESP32. */
 void board_usb_mux_set_audio(bool audio);
 

@@ -42,6 +42,8 @@ static const char *TAG = "ui";
 #define HOT_MS          1500                  // the big dB value after a volume change
 #define AWAKE_US        (8 * 1000 * 1000)     // no key for this long: screen off
 #define HOUSEKEEPING_MS 250                   // VBUS, deferred saves, drive return, sleep timer, link fallback
+#define AMP_IDLE_US     (30 * 1000000LL)      // automuted this long: headphone amps off
+#define AMP_POLL_MS     20                    // automute poll while the amps are off, so sound returns quickly
 #define GC9A01_SLPIN    0x10
 #define GC9A01_SLPOUT   0x11
 #define GC9A01_DISPOFF  0x28
@@ -65,6 +67,9 @@ static int64_t s_last_hold_us;
 // Wake and sleep. The screen is dark (backlight 0, panel in sleep, LVGL stopped) unless Menu woke it.
 static bool s_awake;
 static int64_t s_last_key_us;
+static bool s_amp_off;
+static int64_t s_muted_since;   // 0 = not automuted
+static uint32_t s_amp_resets;   // dac_reset_count() when the amps were last switched
 static int64_t s_panel_toggle_us;     // last sleep-in or sleep-out
 
 // Work that talks to the DAC for long; done by the UI task after it lets go of the LVGL lock.
@@ -102,6 +107,7 @@ static void publish_state(void)
         .link = g_link,
         .eq = eq_status(),
         .dac_present = dac_present(),
+        .amp_on = !s_amp_off,
         .power_vbus_mv = power_vbus_mv(),
         .power_charging = power_charging(),
         .storage_mounted = storage_mounted(),
@@ -656,6 +662,37 @@ static void poll_link(void)
     }
 }
 
+// The DAC automutes a few seconds into silence; after AMP_IDLE_US of that (or of no stream) the
+// headphone amps power down, and they come back as soon as the automute clears. A DAC power cycle turns them on itself.
+static void amp_idle_tick(void)
+{
+    if (dac_reset_count() != s_amp_resets) {
+        s_amp_resets = dac_reset_count();
+        s_amp_off = false;
+        s_muted_since = 0;
+    }
+    if (g_settings.udisk_mode || !dac_present()) {
+        return;
+    }
+    // No stream at all counts as silence too: without clocks the automute flag may never rise.
+    const bool muted = !g_link.rate_hz || dac_automuted();
+    const int64_t now = esp_timer_get_time();
+    if (!muted) {
+        s_muted_since = 0;
+        if (s_amp_off) {
+            board_amp_set(true);
+            s_amp_off = false;
+            ESP_LOGI(TAG, "amps on");
+        }
+    } else if (!s_muted_since) {
+        s_muted_since = now;
+    } else if (!s_amp_off && now - s_muted_since >= AMP_IDLE_US) {
+        board_amp_set(false);
+        s_amp_off = true;
+        ESP_LOGI(TAG, "amps off after %lld s of automute", AMP_IDLE_US / 1000000);
+    }
+}
+
 static void housekeeping(void)
 {
     // Every local mount (boot, host eject, DAC mode) holds the volume until the
@@ -676,6 +713,7 @@ static void housekeeping(void)
     // drop the DAC whenever a charger went into the pass-through port.
     (void)power_tick();
     eq_apply();  // cheap when nothing changed; reloads after any DAC reset (power cycle, mode switch)
+    amp_idle_tick();
     if (s_awake && esp_timer_get_time() - s_last_key_us >= AWAKE_US && lvgl_port_lock(0)) {
         screen_sleep();
         lvgl_port_unlock();
@@ -708,8 +746,12 @@ static void ui_task(void *arg)
     for (;;) {
         const TickType_t period = pdMS_TO_TICKS(HOUSEKEEPING_MS);
         const TickType_t elapsed = xTaskGetTickCount() - last_housekeeping;
+        TickType_t wait = elapsed < period ? period - elapsed : 0;
+        if (s_amp_off && wait > pdMS_TO_TICKS(AMP_POLL_MS)) {
+            wait = pdMS_TO_TICKS(AMP_POLL_MS);
+        }
         md3_event_t ev = {0};
-        if (xQueueReceive(s_queue, &ev, elapsed < period ? period - elapsed : 0) == pdTRUE) {
+        if (xQueueReceive(s_queue, &ev, wait) == pdTRUE) {
             if (ev.type == EV_LINK) {
                 s_link_signalled = false;  // cleared before reading, so a write during the read re-signals
                 poll_link();
@@ -724,6 +766,8 @@ static void ui_task(void *arg)
         if (xTaskGetTickCount() - last_housekeeping >= period) {
             last_housekeeping = xTaskGetTickCount();
             housekeeping();
+        } else if (s_amp_off) {
+            amp_idle_tick();
         }
     }
 }

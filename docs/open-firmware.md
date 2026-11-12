@@ -1,4 +1,4 @@
-# md3fw 0.3.1
+# md3fw 0.3.2
 
 md3fw is a from-scratch replacement for the Fosi Audio MD3's ESP32-S3 app, in `firmware/`. ESP-IDF
 5.5.1 (the version the stock image was built with), LVGL 9.2.2, TinyUSB through `esp_tinyusb`. It is
@@ -12,6 +12,17 @@ and dumping are done from a Linux host.
 ![Status screen](../images/status-screen.png)
 
 *The status screen, rendered from [`design/status-screen.html`](../design/status-screen.html).*
+
+## What changed in 0.3.2
+
+- **Idle power.** The DAC's automatic clock gearing and automute are on (the stock firmware turned
+  both off): after about 6 s of silence the DAC mutes and ramps its outputs to ground, 15 mW
+  instead of 54 mW by the datasheet. After 30 s of automute, or of no stream, GPIO17 powers the
+  four ES9603Q headphone amps down (AMP_PDB, pop-free by their datasheet, under 5 uA each) and
+  the automute is then polled every 20 ms; the amps come back as soon as sound does. The first
+  few tens of milliseconds after a long silence may be lost. `md3ctl info` shows `amp_on`.
+- **Charger in the pass-through port.** A charge-state change only moves the "usb src" line. It
+  no longer reruns the audio power-on, whose Savitech reset made the phone drop the DAC.
 
 ## What changed in 0.3.1
 
@@ -61,12 +72,13 @@ itself after an eject.
 
 ## Known issues
 
-- **Charger in the pass-through port.** With a charger in the MD3's PD pass-through port, an
-  iPhone does not see the MD3 as headphones. The power-state code (`firmware/main/power.c`) is
-  unchanged from 0.2.4 and mirrors the stock firmware's charge handling; the cause is not yet
-  known.
-- **Battery saving not measured.** The lower clock, frequency scaling and dark screen should draw
-  less from the phone, but nobody has measured it.
+- **Charger in the pass-through port.** Before 0.3.2, plugging a charger in made an iPhone drop
+  the MD3 until it was replugged. 0.3.2 skips the audio restart on a charge-state change; whether
+  that is enough has not been tested yet.
+- **Battery.** iOS put the MD3 at about 11% of an iPhone's battery per hour on the stock firmware
+  and about 6.6% on 0.3.1 (Settings, Battery, "USB-C Accessories": its share times the day's
+  total). Most of the rest is the USB audio bridge and the power supplies, which firmware does not
+  control.
 
 ## Controls
 

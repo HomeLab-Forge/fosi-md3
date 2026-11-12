@@ -10,7 +10,7 @@
 #include "link.h"
 #include "settings.h"
 
-#define MD3_FW_VERSION "md3fw 0.3.1"
+#define MD3_FW_VERSION "md3fw 0.3.2"
 
 typedef enum {
     KEY_VOL_UP,
@@ -50,6 +50,7 @@ typedef struct {
     link_state_t link;
     eq_status_t eq;
     bool dac_present;
+    bool amp_on;
     int power_vbus_mv;
     bool power_charging;
     bool storage_mounted;
