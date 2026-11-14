@@ -151,9 +151,9 @@
   }
 
   // Power estimate (average since plug-in), as the firmware would keep it: time in each state times
-  // a datasheet figure, plus a fixed part calibrated to the iOS reading of 0.3.1 (6.6 %/h of an
-  // iPhone 15 Pro's 12.7 Wh while playing with the screen dark). Shares here are example values.
-  const PW = { fixed: 0.706, dacPlay: 0.054, dacMute: 0.015, amps: 0.080, screen: 0.15, wh: 12.7 };
+  // a datasheet figure, plus a fixed part calibrated to the iOS reading of 0.3.2/0.3.3 (7.9 %/h of
+  // an iPhone 15 Pro's 12.7 Wh while playing with the screen dark). Shares here are example values.
+  const PW = { fixed: 0.870, dacPlay: 0.054, dacMute: 0.015, amps: 0.080, screen: 0.15, wh: 12.7 };
   function power(s) {
     const mute = s.paused ? 0.9 : 0.05, ampOff = s.paused ? 0.8 : 0, scr = 0.03;
     const w = PW.fixed + PW.dacPlay * (1 - mute) + PW.dacMute * mute + PW.amps * (1 - ampOff) + PW.screen * scr;

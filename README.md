@@ -8,7 +8,7 @@ ESP32-S3 inside runs the screen, the buttons and the ES9039Q2M DAC. md3fw replac
 ESP32. It writes only the app partition and keeps the audio path, the photo volume and the
 settings format, so the stock firmware can go back on at any time.
 
-Version 0.3.3 is maintained and used daily on one MD3 as a DAC for an iPhone.
+Version 0.3.4 is maintained and used daily on one MD3 as a DAC for an iPhone.
 
 ![The status screen: Warm preset at 44.1 kHz, with the power estimate above the volume](images/status-screen.png)
 
@@ -18,7 +18,7 @@ Version 0.3.3 is maintained and used daily on one MD3 as a DAC for an iPhone.
   volume uses the stock 101-step curve.
 - **One status screen:** the stream ("96 kHz PCM", "DSD128", "no stream"), "High Gain" or "Low
   Gain", the EQ preset's curve, its name and a note, an estimate of the power drawn since plug-in
-  ("~0.84 W • 6.6 %/h" of an iPhone 15 Pro battery), and the volume as a ring with its value in dB.
+  ("~1.00 W • 7.9 %/h" of an iPhone 15 Pro battery), and the volume as a ring with its value in dB.
   The screen stays dark until you press Menu, and goes dark on another Menu click or 8 s after the last key.
 - **Nine EQ presets** on the DAC's programmable filter (DSD bypasses the EQ):
   - Flat: the DAC's built-in filter
@@ -63,6 +63,8 @@ file and notes.
   - Power estimate on the screen and in `md3ctl info`.
   - `md3ctl log` works on Linux.
   - Image header version fixed.
+- **0.3.4**
+  - Power estimate recalibrated to the corrected battery reading (fixed part 870 mW, was 706).
 - **Host tools** (not firmware)
   - Dump and flash from Linux: `catch_rom.py` finds the boot-window port by its USB id and waits
     for udev's permissions.
@@ -70,18 +72,20 @@ file and notes.
 
 ## Battery
 
-The MD3 has no battery of its own and runs from the phone. Measured on an iPhone with IEMs, from
-the share iOS gives "USB-C Accessories":
+The MD3 has no battery of its own and runs from the phone. Measured on an iPhone 15 Pro with IEMs,
+from what iOS lists for "USB-C Accessories" under Settings > Battery:
 
 | Firmware | Drain from the MD3 | About |
 |---|---|---|
-| Stock (Fosi) | ~11.3% of the phone battery per hour | 1.5-1.9 W |
-| md3fw 0.3.1 | ~6.6% per hour, about 40% less | 0.9-1.1 W |
+| Stock (Fosi) | ~10.7% of the phone battery per hour | 1.35 W |
+| md3fw 0.3.1 | ~10.3% per hour | 1.3 W |
+| md3fw 0.3.2 / 0.3.3 | ~7.9% per hour, about 25% less than stock | 1.0 W |
 
-Most of the saving comes from the dark screen. Most of what is left is the USB audio bridge, the
-headphone amps and the power supplies, which have to run while music plays. 0.3.2 also saves
-power in silence: the DAC automutes and the amps power down. That part is not measured yet. The
-method, the caveats and the power budget per chip are in [`docs/power.md`](docs/power.md).
+The dark screen, the radios and the lower clock (0.3.0-0.3.1) saved little. The drop came with
+0.3.2: the DAC's automute and clock gearing, and the headphone amps powered down in silence. Most
+of what is left is the USB audio bridge, the amps and the power supplies, which have to run while
+music plays. The method, the caveats and the power budget per chip are in
+[`docs/power.md`](docs/power.md).
 
 ## Buttons
 

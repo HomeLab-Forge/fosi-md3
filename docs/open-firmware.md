@@ -1,4 +1,4 @@
-# md3fw 0.3.3
+# md3fw 0.3.4
 
 md3fw is a from-scratch replacement for the Fosi Audio MD3's ESP32-S3 app, in `firmware/`. ESP-IDF
 5.5.1 (the version the stock image was built with), LVGL 9.2.2, TinyUSB through `esp_tinyusb`. It is
@@ -6,17 +6,24 @@ written for the existing partition table and only ever replaces the 9 MB `factor
 0x10000. It leaves the Savitech, the photo volume and the settings record format as Fosi made them,
 so the stock firmware can be written back at any time.
 
-0.3.1 runs on one unit (flashed 2026-11-11) that is used daily as a DAC for an iPhone. Flashing
+md3fw runs on one unit (first flashed 2026-11-11) that is used daily as a DAC for an iPhone. Flashing
 and dumping are done from a Linux host.
 
 ![Status screen](../images/status-screen.png)
 
 *The status screen, rendered from [`design/status-screen.html`](../design/status-screen.html).*
 
+## What changed in 0.3.4
+
+- **Power estimate recalibrated.** The fixed part of the model is 870 mW (was 706). 0.3.3 was
+  fitted to a misreading of iOS's battery list (6.6 %/h for 0.3.1); the corrected reading for
+  0.3.2/0.3.3 is 7.9 %/h. Playing with the screen dark now shows about "~1.00 W • 7.9 %/h". See
+  [`power.md`](power.md).
+
 ## What changed in 0.3.3
 
 - **Power estimate.** A small grey line above the dB value shows the estimated draw averaged
-  since plug-in, as "~0.84 W • 6.6 %/h" (% of an iPhone 15 Pro battery per hour). The firmware
+  since plug-in, as "~1.00 W • 7.9 %/h" (% of an iPhone 15 Pro battery per hour). The firmware
   counts the exact time with the screen on, the amps off, the DAC automuted and a stream present,
   and multiplies by fixed figures; the watts are an estimate, about ±25%. See
   [`power.md`](power.md#on-the-device). `md3ctl info` has the same numbers under `power_est`:
@@ -85,8 +92,8 @@ itself after an eject.
 
 ## Known issues
 
-- **Battery.** About 11.3% of an iPhone's battery per hour on stock, 6.6% on 0.3.1. The 0.3.2 idle
-  savings are not measured yet. See [`power.md`](power.md).
+- **Battery.** About 10.7% of an iPhone's battery per hour on stock, 10.3% on 0.3.1 and 7.9% on
+  0.3.2/0.3.3. See [`power.md`](power.md).
 - **Unplugging the charger interrupts playback on an iPhone.** Taking a charger out of the
   pass-through port while playing from an iPhone stops the sound. On a computer host, which never
   draws power from the MD3, nothing happens, so this is the phone swapping its USB power role and
@@ -132,7 +139,7 @@ Drawn as in [`design/status-screen.html`](../design/status-screen.html), on blac
   coefficients for the stream's rate; on DSD the curve greys out and the note says "EQ not used
   on DSD".
 - **Power line (y 188):** in grey, the estimated draw averaged since plug-in and the share of an
-  iPhone 15 Pro battery it would use per hour: "~0.84 W • 6.6 %/h". The built-in fonts have no
+  iPhone 15 Pro battery it would use per hour: "~1.00 W • 7.9 %/h". The built-in fonts have no
   "≈" or "·", so "~" and a bullet stand in. It updates while the screen is on; see
   [`power.md`](power.md#on-the-device).
 - **Edge:** the device volume as an amber arc from 7 to 5 o'clock and its attenuation in dB at
